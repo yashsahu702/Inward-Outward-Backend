@@ -1,0 +1,130 @@
+<html>
+  <head>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        line-height: 1.6;
+        margin: 0;
+        padding-top: 0px;
+        padding-left: 5px;
+        padding-right: 5px;
+        background: #f8f9fa;
+      }
+      .header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 5px;
+      }
+      .header img {
+        width: 125px;
+        height: auto;
+      }
+      .header .details {
+        text-align: right;
+      }
+      .content {
+        background: white;
+        padding: 8px;
+        border-radius: 8px;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+      }
+      .footer {
+        margin-top: 10px;
+        text-align: center;
+        font-size: 0.9em;
+        color: #666;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 10px;
+      }
+      table td,
+      table th {
+        border: 1px solid #ddd;
+        padding: 8px;
+      }
+      table th {
+        background: #f2f2f2;
+        text-align: left;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <img
+        src="http://localhost:5050/public/kenya-noBg-ab.png"
+        alt="ABCANVIEW Logo"
+      />
+      <div class="details">
+        <p><b>Bill Date:</b> ${new Date().toLocaleDateString()}</p>
+        <p><b>Demand ID:</b> ${billData.demandId}</p>
+      </div>
+    </div>
+
+    <div class="content">
+      <h2>Property Details</h2>
+      <table>
+        <tr>
+          <td><b>Property Number</b></td>
+          <td>${billData.propertyNumber}</td>
+        </tr>
+        <tr>
+          <td><b>Application Number</b></td>
+          <td>${billData.applicationNumber}</td>
+        </tr>
+        <tr>
+          <td><b>Owner Name</b></td>
+          <td>${billData.ownerName}</td>
+        </tr>
+        <tr>
+          <td><b>Property Address</b></td>
+          <td>${billData.propertyAddress}</td>
+        </tr>
+      </table>
+
+      <h2>Demand Details</h2>
+      <table>
+        <tr>
+          <td><b>Demand Amount (KES)</b></td>
+          <td>${billData.demandAmount.toLocaleString()}</td>
+        </tr>
+        <tr>
+          <td><b>Status</b></td>
+          <td>${billData.status}</td>
+        </tr>
+        <tr>
+          <td><b>Amount Due (KES)</b></td>
+          <td>${billData.dueAmount.toLocaleString()}</td>
+        </tr>
+        <tr>
+          <td><b>Due Date</b></td>
+          <td>${billData.dueDate.toLocaleDateString('en-GB')}</td>
+        </tr>
+      </table>
+
+      <h2>Bill Calculation</h2>
+      <p>
+        The demand amount is calculated based on the rate percentage for your
+        county, which is <b>${ratePercentage} KES</b> per unit of property
+        value. The value of your property is <b>${propertyValue} KES</b>. The
+        total demand is calculated as:
+      </p>
+      <p><b>Annual Land Rate x Property Value = Demand Amount</b></p>
+      <p>
+        <b
+          >${ratePercentage} KES x ${propertyValue} KES =
+          ${calculatedAmount.toLocaleString()} KES</b
+        >
+      </p>
+
+      <h2>Payment Instructions</h2>
+      <p>Please make the payment by the due date to avoid penalties.</p>
+    </div>
+    <div class="footer">
+      <p>Thank you for your prompt attention to this matter!</p>
+      <p>For any inquiries, contact us at support@abcanview.com</p>
+    </div>
+  </body>
+</html>

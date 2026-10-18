@@ -1,0 +1,25 @@
+name: Deploy PROD backend
+on:
+  pull_request:
+    branches: [release/prod]
+    types: [closed]
+
+jobs:
+  deploy:
+    if: ${{ github.event.pull_request.merged == true }}
+    runs-on: [growth-hub-v1]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: backend
+
+      - name: Sync code to PROD dir
+        run: |
+          rm -rf /home/growth_hub/backend-prod/growth-hub-rr-backend
+          mkdir -p /home/growth_hub/backend-prod
+          cp -R ./backend /home/growth_hub/backend-prod/growth-hub-rr-backend
+
+      - name: Restart PM2 (PROD)
+        run: |
+          cd /home/growth_hub
+          pm2 restart ecosystem.config.js --only GH-backend-prod
