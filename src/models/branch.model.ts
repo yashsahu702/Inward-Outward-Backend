@@ -1,40 +1,45 @@
-import { Model, DataTypes, Sequelize, Optional } from 'sequelize';
+import {
+    Model,
+    DataTypes,
+    Sequelize,
+    Optional,
+} from 'sequelize';
 
 interface BranchAttributes {
     id: string;
     branchName: string;
     branchCode: string;
-    departmentId: string;
+    senderId: string;
     activeFlag: boolean;
-    createdBy?: string | null;
-    createdOn?: Date;
+    createdBy: string;
+    createdOn: Date;
     updatedBy?: string | null;
-    updatedOn?: Date;
+    updatedOn?: Date | null;
 }
 
-type BranchCreationAttributes = Optional<
-    BranchAttributes,
-    | 'id'
-    | 'activeFlag'
-    | 'createdBy'
-    | 'createdOn'
-    | 'updatedBy'
-    | 'updatedOn'
->;
+interface BranchCreationAttributes
+    extends Optional<
+        BranchAttributes,
+        | 'id'
+        | 'activeFlag'
+        | 'createdOn'
+        | 'updatedOn'
+        | 'updatedBy'
+    > {}
 
-export class Branch
+class Branch
     extends Model<BranchAttributes, BranchCreationAttributes>
-    implements BranchAttributes {
-
-    public id!: string;
-    public branchName!: string;
-    public branchCode!: string;
-    public departmentId!: string;
-    public activeFlag!: boolean;
-    public createdBy!: string | null;
-    public createdOn!: Date;
-    public updatedBy!: string | null;
-    public updatedOn!: Date;
+    implements BranchAttributes
+{
+    declare id: string;
+    declare branchName: string;
+    declare branchCode: string;
+    declare senderId: string;
+    declare activeFlag: boolean;
+    declare createdBy: string;
+    declare createdOn: Date;
+    declare updatedBy: string | null;
+    declare updatedOn: Date | null;
 
     static initialize(sequelize: Sequelize) {
         Branch.init(
@@ -42,24 +47,28 @@ export class Branch
                 id: {
                     type: DataTypes.UUID,
                     defaultValue: DataTypes.UUIDV4,
-                    allowNull: false,
                     primaryKey: true,
-                    field: 'id',
                 },
                 branchName: {
-                    type: DataTypes.STRING(100),
+                    type: DataTypes.STRING,
                     allowNull: false,
                     field: 'branch_name',
                 },
                 branchCode: {
-                    type: DataTypes.STRING(50),
+                    type: DataTypes.STRING,
                     allowNull: false,
                     field: 'branch_code',
                 },
-                departmentId: {
+                senderId: {
                     type: DataTypes.UUID,
                     allowNull: false,
-                    field: 'department_id',
+                    references: {
+                        model: 'senders',
+                        key: 'id',
+                    },
+                    onUpdate: 'CASCADE',
+                    onDelete: 'RESTRICT',
+                    field: 'sender_id',
                 },
                 activeFlag: {
                     type: DataTypes.BOOLEAN,
@@ -69,12 +78,12 @@ export class Branch
                 },
                 createdBy: {
                     type: DataTypes.UUID,
-                    allowNull: true,
+                    allowNull: false,
                     field: 'created_by',
                 },
                 createdOn: {
                     type: DataTypes.DATE,
-                    allowNull: true,
+                    allowNull: false,
                     defaultValue: DataTypes.NOW,
                     field: 'created_on',
                 },
@@ -86,7 +95,6 @@ export class Branch
                 updatedOn: {
                     type: DataTypes.DATE,
                     allowNull: true,
-                    defaultValue: DataTypes.NOW,
                     field: 'updated_on',
                 },
             },
@@ -98,12 +106,12 @@ export class Branch
                 indexes: [
                     {
                         unique: true,
-                        fields: ['department_id', 'branch_code'],
+                        fields: ['sender_id', 'branch_code'],
                     },
                 ],
             }
         );
     }
-
-    static associate() {}
 }
+
+export { Branch };

@@ -3,8 +3,13 @@ import { Response } from 'express'
 import { Sender } from '../models/sender.model'
 import { AuthRequest } from '../types/auth.types'
 import { Op } from 'sequelize'
+import { sequelize, Audit } from '../models';
+import { EntityType } from '../models/enums';
+import { Transaction } from 'sequelize';
 
 export const createSender = async (req: AuthRequest, res: Response) => {
+    let transaction: Transaction | undefined;
+
     try {
         const {
             senderName,
@@ -18,9 +23,15 @@ export const createSender = async (req: AuthRequest, res: Response) => {
             mobile,
             email,
             activeFlag,
-        } = req.body
+        } = req.body;
 
-        const userId = req.user?.id
+        const userId = req.user?.id;
+
+        if (!userId) {
+            return res.status(401).json({
+                message: 'User authentication is required',
+            });
+        }
 
         if (
             !senderName ||
@@ -35,85 +46,117 @@ export const createSender = async (req: AuthRequest, res: Response) => {
         ) {
             return res.status(400).json({
                 message: 'Please provide all required sender details',
-            })
+            });
         }
 
-        // Validate PIN code
         if (!/^\d{6}$/.test(String(pinCode))) {
             return res.status(400).json({
                 message: 'PIN code must contain exactly 6 digits',
-            })
+            });
         }
 
-        // Validate mobile number
         if (!/^\d{10}$/.test(String(mobile))) {
             return res.status(400).json({
                 message: 'Mobile number must contain exactly 10 digits',
-            })
+            });
         }
 
-        // Validate email if provided
-        if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        if (
+            email &&
+            !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+        ) {
             return res.status(400).json({
                 message: 'Please provide a valid email address',
-            })
+            });
         }
 
-        // Check duplicate mobile number
         const existingSender = await Sender.findOne({
-            where: { mobile },
-        })
+            where: { mobile: String(mobile) },
+        });
 
         if (existingSender) {
             return res.status(400).json({
                 message: 'Mobile number already exists',
-            })
+            });
         }
 
-        // Check duplicate email if provided
         if (email) {
             const existingEmail = await Sender.findOne({
                 where: { email },
-            })
+            });
 
             if (existingEmail) {
                 return res.status(400).json({
                     message: 'Email already exists',
-                })
+                });
             }
         }
 
-        const sender = await Sender.create({
-            senderName,
-            senderType,
-            organization,
-            designation,
-            address,
-            district,
-            taluka,
-            pinCode: String(pinCode),
-            mobile: String(mobile),
-            email: email || null,
-            activeFlag: activeFlag ?? true,
-            createdBy: userId ?? null,
-            createdOn: new Date(),
-        })
+        // Start transaction after validation
+        transaction = await sequelize.transaction();
+
+        const sender = await Sender.create(
+            {
+                senderName,
+                senderType,
+                organization,
+                designation,
+                address,
+                district,
+                taluka,
+                pinCode: String(pinCode),
+                mobile: String(mobile),
+                email: email || null,
+                activeFlag: activeFlag ?? true,
+                createdBy: userId,
+                createdOn: new Date(),
+            },
+            { transaction }
+        );
+
+        // Create audit record
+        await Audit.create(
+            {
+                entity: EntityType.SENDER,
+                entityId: sender.id,
+                action: 'Create',
+                performedBy: userId,
+                remarks: `Sender "${sender.senderName}" created successfully`,
+                ipAddress:
+                    req.ip ||
+                    req.socket.remoteAddress ||
+                    'unknown',
+                timestamp: new Date(),
+            },
+            { transaction }
+        );
+
+        await transaction.commit();
 
         return res.status(201).json({
             message: 'Sender created successfully',
             data: sender,
-        })
+        });
     } catch (error: any) {
-        console.error('createSender error:', error)
+         if (transaction) {
+    try {
+        await transaction.rollback();
+    } catch (rollbackError) {
+        console.error('Transaction rollback error:', rollbackError);
+    }
+}
+        console.error('createSender error:', error);
 
         return res.status(500).json({
             message: 'Internal server error',
             error: error.message,
-        })
+        });
     }
-}
+};
 
 export const updateSender = async (req: AuthRequest, res: Response) => {
+    let transaction: Transaction | undefined;
+
     try {
         const {
             id,
@@ -128,121 +171,157 @@ export const updateSender = async (req: AuthRequest, res: Response) => {
             mobile,
             email,
             activeFlag,
-        } = req.body
+        } = req.body;
 
-        const userId = req.user?.id
+        const userId = req.user?.id;
+
+        if (!userId) {
+            return res.status(401).json({
+                message: 'User authentication is required',
+            });
+        }
 
         if (!id) {
             return res.status(400).json({
                 message: 'Sender ID is required',
-            })
+            });
         }
 
-        const sender = await Sender.findByPk(id)
+        const sender = await Sender.findByPk(id);
 
         if (!sender) {
             return res.status(404).json({
                 message: 'Sender not found',
-            })
+            });
         }
 
-        // Validate changed PIN code
         if (
             pinCode !== undefined &&
             !/^\d{6}$/.test(String(pinCode))
         ) {
             return res.status(400).json({
                 message: 'PIN code must contain exactly 6 digits',
-            })
+            });
         }
 
-        // Validate changed mobile number
         if (
             mobile !== undefined &&
             !/^\d{10}$/.test(String(mobile))
         ) {
             return res.status(400).json({
                 message: 'Mobile number must contain exactly 10 digits',
-            })
+            });
         }
 
-        // Check duplicate mobile number
-        if (mobile && mobile !== sender.mobile) {
+        if (mobile && String(mobile) !== sender.mobile) {
             const existingSender = await Sender.findOne({
                 where: {
-                    mobile,
+                    mobile: String(mobile),
                     id: { [Op.ne]: id },
                 },
-            })
+            });
 
             if (existingSender) {
                 return res.status(400).json({
                     message: 'Mobile number already exists',
-                })
+                });
             }
         }
 
-        // Validate email if supplied
         if (
             email &&
             !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
         ) {
             return res.status(400).json({
                 message: 'Please provide a valid email address',
-            })
+            });
         }
 
-        // Check duplicate email
         if (email && email !== sender.email) {
             const existingEmail = await Sender.findOne({
                 where: {
                     email,
                     id: { [Op.ne]: id },
                 },
-            })
+            });
 
             if (existingEmail) {
                 return res.status(400).json({
                     message: 'Email already exists',
-                })
+                });
             }
         }
 
-        await sender.update({
-            senderName: senderName ?? sender.senderName,
-            senderType: senderType ?? sender.senderType,
-            organization: organization ?? sender.organization,
-            designation: designation ?? sender.designation,
-            address: address ?? sender.address,
-            district: district ?? sender.district,
-            taluka: taluka ?? sender.taluka,
-            pinCode:
-                pinCode === undefined
-                    ? sender.pinCode
-                    : String(pinCode),
-            mobile:
-                mobile === undefined
-                    ? sender.mobile
-                    : String(mobile),
-            email: email === undefined ? sender.email : email || null,
-            activeFlag: activeFlag ?? sender.activeFlag,
-            updatedBy: userId ?? null,
-            updatedOn: new Date(),
-        })
+        // Capture existing values before updating
+        const previousSender = sender.toJSON();
+
+        transaction = await sequelize.transaction();
+
+        await sender.update(
+            {
+                senderName: senderName ?? sender.senderName,
+                senderType: senderType ?? sender.senderType,
+                organization: organization ?? sender.organization,
+                designation: designation ?? sender.designation,
+                address: address ?? sender.address,
+                district: district ?? sender.district,
+                taluka: taluka ?? sender.taluka,
+                pinCode:
+                    pinCode === undefined
+                        ? sender.pinCode
+                        : String(pinCode),
+                mobile:
+                    mobile === undefined
+                        ? sender.mobile
+                        : String(mobile),
+                email: email === undefined ? sender.email : email || null,
+                activeFlag: activeFlag ?? sender.activeFlag,
+                updatedBy: userId,
+                updatedOn: new Date(),
+            },
+            { transaction }
+        );
+
+        // Create audit record
+        await Audit.create(
+            {
+                entity: EntityType.SENDER,
+                entityId: sender.id,
+                action: 'Update',
+                performedBy: userId,
+                remarks: `Sender "${sender.senderName}" updated. Previous values: ${JSON.stringify(previousSender)}`,
+                ipAddress:
+                    req.ip ||
+                    req.socket.remoteAddress ||
+                    'unknown',
+                timestamp: new Date(),
+            },
+            { transaction }
+        );
+
+        await transaction.commit();
 
         return res.status(200).json({
             message: 'Sender updated successfully',
             data: sender,
-        })
+        });
     } catch (error: any) {
-        console.error('updateSender error:', error)
+        if (transaction) {
+    try {
+        await transaction.rollback();
+    } catch (rollbackError) {
+        console.error('Transaction rollback error:', rollbackError);
+    }
+}
+
+        console.error('updateSender error:', error);
 
         return res.status(500).json({
             message: 'Internal server error',
             error: error.message,
-        })
+        });
     }
-}
+};
 
 export const getSenders = async (req: AuthRequest, res: Response) => {
     try {

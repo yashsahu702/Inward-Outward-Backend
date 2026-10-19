@@ -2,104 +2,197 @@
 import { Response } from 'express'
 import { Section } from '../models/section.model'
 import { AuthRequest } from '../types/auth.types'
+import { sequelize, Audit } from '../models';
+import { EntityType } from '../models/enums';
+import { Transaction, Op } from 'sequelize';
 
 export const createSection = async (req: AuthRequest, res: Response) => {
+    let transaction: Transaction | undefined;
+
     try {
-        const { sectionName, sectionCode, activeFlag } = req.body
-        const userId = req.user?.id
+        const { sectionName, sectionCode, activeFlag } = req.body;
+        const userId = req.user?.id;
+
+        if (!userId) {
+            return res.status(401).json({
+                message: 'User authentication is required',
+            });
+        }
 
         if (!sectionName || !sectionCode) {
             return res.status(400).json({
                 message: 'Section name and section code are required',
-            })
+            });
         }
 
-        // Check duplicate section code
         const existingSection = await Section.findOne({
             where: { sectionCode },
-        })
+        });
 
         if (existingSection) {
             return res.status(400).json({
                 message: 'Section code already exists',
-            })
+            });
         }
 
-        const section = await Section.create({
-            sectionName,
-            sectionCode,
-            activeFlag: activeFlag ?? true,
-            createdBy: userId ?? null,
-            createdOn: new Date(),
-        })
+        transaction = await sequelize.transaction();
+
+        const section = await Section.create(
+            {
+                sectionName,
+                sectionCode,
+                activeFlag: activeFlag ?? true,
+                createdBy: userId,
+                createdOn: new Date(),
+            },
+            { transaction }
+        );
+
+        await Audit.create(
+            {
+                entity: EntityType.SECTION,
+                entityId: section.id,
+                action: 'Create',
+                performedBy: userId,
+                remarks: `Section "${section.sectionName}" created successfully`,
+                ipAddress:
+                    req.ip ||
+                    req.socket.remoteAddress ||
+                    'unknown',
+                timestamp: new Date(),
+            },
+            { transaction }
+        );
+
+        await transaction.commit();
 
         return res.status(201).json({
             message: 'Section created successfully',
             data: section,
-        })
+        });
     } catch (error: any) {
-        console.error('createSection error:', error)
+        if (transaction) {
+            try {
+                await transaction.rollback();
+            } catch (rollbackError) {
+                console.error(
+                    'Transaction rollback error:',
+                    rollbackError
+                );
+            }
+        }
+
+        console.error('createSection error:', error);
 
         return res.status(500).json({
             message: 'Internal server error',
             error: error.message,
-        })
+        });
     }
-}
+};
 
 export const updateSection = async (req: AuthRequest, res: Response) => {
+    let transaction: Transaction | undefined;
+
     try {
-        const { id, sectionName, sectionCode, activeFlag } = req.body
-        const userId = req.user?.id
+        const { id, sectionName, sectionCode, activeFlag } = req.body;
+        const userId = req.user?.id;
+
+        if (!userId) {
+            return res.status(401).json({
+                message: 'User authentication is required',
+            });
+        }
 
         if (!id) {
             return res.status(400).json({
                 message: 'Section ID is required',
-            })
+            });
         }
 
-        const section = await Section.findByPk(id)
+        const section = await Section.findByPk(id);
 
         if (!section) {
             return res.status(404).json({
                 message: 'Section not found',
-            })
+            });
         }
 
-        // Check duplicate section code if it is being changed
-        if (sectionCode && sectionCode !== section.sectionCode) {
+        if (
+            sectionCode &&
+            sectionCode !== section.sectionCode
+        ) {
             const existingSection = await Section.findOne({
-                where: { sectionCode },
-            })
+                where: {
+                    sectionCode,
+                    id: { [Op.ne]: id },
+                },
+            });
 
             if (existingSection) {
                 return res.status(400).json({
                     message: 'Section code already exists',
-                })
+                });
             }
         }
 
-        await section.update({
-            sectionName: sectionName ?? section.sectionName,
-            sectionCode: sectionCode ?? section.sectionCode,
-            activeFlag: activeFlag ?? section.activeFlag,
-            updatedBy: userId ?? null,
-            updatedOn: new Date(),
-        })
+        const previousSection = section.toJSON();
+
+        transaction = await sequelize.transaction();
+
+        await section.update(
+            {
+                sectionName: sectionName ?? section.sectionName,
+                sectionCode: sectionCode ?? section.sectionCode,
+                activeFlag: activeFlag ?? section.activeFlag,
+                updatedBy: userId,
+                updatedOn: new Date(),
+            },
+            { transaction }
+        );
+
+        await Audit.create(
+            {
+                entity: EntityType.SECTION,
+                entityId: section.id,
+                action: 'Update',
+                performedBy: userId,
+                remarks: `Section "${section.sectionName}" updated. Previous values: ${JSON.stringify(previousSection)}`,
+                ipAddress:
+                    req.ip ||
+                    req.socket.remoteAddress ||
+                    'unknown',
+                timestamp: new Date(),
+            },
+            { transaction }
+        );
+
+        await transaction.commit();
 
         return res.status(200).json({
             message: 'Section updated successfully',
             data: section,
-        })
+        });
     } catch (error: any) {
-        console.error('updateSection error:', error)
+        if (transaction) {
+            try {
+                await transaction.rollback();
+            } catch (rollbackError) {
+                console.error(
+                    'Transaction rollback error:',
+                    rollbackError
+                );
+            }
+        }
+
+        console.error('updateSection error:', error);
 
         return res.status(500).json({
             message: 'Internal server error',
             error: error.message,
-        })
+        });
     }
-}
+};
 
 export const getSections = async (req: AuthRequest, res: Response) => {
     try {

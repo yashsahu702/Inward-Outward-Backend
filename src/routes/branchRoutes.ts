@@ -5,7 +5,7 @@ import {
     updateBranch,
     getBranches,
     getBranchById,
-    getBranchesByDepartmentId,
+    getBranchesBySenderId,
 } from '../controllers/branchController'
 
 const router = Router()
@@ -15,7 +15,7 @@ router.post('/updateBranch', updateBranch)
 router.get('/getBranches', getBranches)
 router.get('/getBranchById/:id', getBranchById)
 router.get(
-    '/getBydepartmentId/:departmentId',
-    getBranchesByDepartmentId
+    '/getBySenderId/:SenderId',
+    getBranchesBySenderId
 )
 export default router

@@ -24,7 +24,7 @@ import { NotificationOrdms } from '../models/notificationOrdms.model'
 import { Section } from './section.model';
 import { UserSection } from './userSection.model';
 import { Subject } from './subject.model';
-import { Branch } from './branch.model';
+import  { Branch }  from './branch.model';
 import { Sender } from './sender.model';
 import { Avak } from './avak.model';
 import { RemarkRecord } from './RemarkStatus'
@@ -237,14 +237,24 @@ Subject.belongsTo(Department, {
 // Department -> Branch (One-to-Many)
 // ==========================================
 
-Department.hasMany(Branch, {
-    foreignKey: 'departmentId',
+// Department.hasMany(Branch, {
+//     foreignKey: 'departmentId',
+//     as: 'branches',
+// });
+
+// Branch.belongsTo(Department, {
+//     foreignKey: 'departmentId',
+//     as: 'department',
+// });
+
+Sender.hasMany(Branch, {
+    foreignKey: 'senderId',
     as: 'branches',
 });
 
-Branch.belongsTo(Department, {
-    foreignKey: 'departmentId',
-    as: 'department',
+Branch.belongsTo(Sender, {
+    foreignKey: 'senderId',
+    as: 'sender',
 });
 
 // ==========================================
@@ -394,13 +404,12 @@ export {
     Otp,
     Audit,
     Department,
-RemarkRecord,
+    RemarkRecord,
     NotificationOrdms,
-
     Section,
     UserSection,
     Subject,
     Branch,
     Sender,
-Avak
+    Avak
 };

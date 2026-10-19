@@ -1,251 +1,332 @@
-
-import { Response } from 'express'
-import { Branch } from '../models/branch.model'
-import { Department } from '../models/department.model'
-import { AuthRequest } from '../types/auth.types'
+import { Response } from 'express';
+import { Op, Transaction } from 'sequelize';
+import { Branch } from '../models/branch.model';
+import { Sender } from '../models/sender.model';
+import { AuthRequest } from '../types/auth.types';
+import { Audit, sequelize } from '../models';
+import { EntityType } from '../models/enums';
 
 export const createBranch = async (req: AuthRequest, res: Response) => {
+    let transaction: Transaction | undefined;
+
     try {
         const {
             branchName,
             branchCode,
-            departmentId,
+            senderId,
             activeFlag,
-        } = req.body
+        } = req.body;
 
-        const userId = req.user?.id
+        const userId = req.user?.id;
 
-        if (!branchName || !branchCode || !departmentId) {
+        if (!userId) {
+            return res.status(401).json({
+                message: 'User authentication is required',
+            });
+        }
+
+        if (!branchName || !branchCode || !senderId) {
             return res.status(400).json({
-                message:
-                    'Branch name, branch code and department ID are required',
-            })
+                message: 'Branch name, branch code and sender ID are required',
+            });
         }
 
-        // Check whether the department exists
-        const department = await Department.findByPk(departmentId)
+        const sender = await Sender.findByPk(senderId);
 
-        if (!department) {
+        if (!sender) {
             return res.status(404).json({
-                message: 'Department not found',
-            })
+                message: 'Sender not found',
+            });
         }
 
-        // Check duplicate branch code within the same department
         const existingBranch = await Branch.findOne({
             where: {
                 branchCode,
-                departmentId,
+                senderId,
             },
-        })
+        });
 
         if (existingBranch) {
             return res.status(400).json({
-                message:
-                    'Branch code already exists in this department',
-            })
+                message: 'Branch code already exists for this sender',
+            });
         }
 
-        const branch = await Branch.create({
-            branchName,
-            branchCode,
-            departmentId,
-            activeFlag: activeFlag ?? true,
-            createdBy: userId ?? null,
-            createdOn: new Date(),
-        })
+        transaction = await sequelize.transaction();
+
+        const branch = await Branch.create(
+            {
+                branchName,
+                branchCode,
+                senderId,
+                activeFlag: activeFlag ?? true,
+                createdBy: userId,
+                createdOn: new Date(),
+            },
+            { transaction }
+        );
+
+        await Audit.create(
+            {
+                entity: EntityType.BRANCH,
+                entityId: branch.id,
+                action: 'Create',
+                performedBy: userId,
+                remarks: `Branch "${branch.branchName}" created successfully for sender "${sender.senderName}"`,
+                ipAddress:
+                    req.ip || req.socket.remoteAddress || 'unknown',
+                timestamp: new Date(),
+            },
+            { transaction }
+        );
+
+        await transaction.commit();
 
         return res.status(201).json({
             message: 'Branch created successfully',
             data: branch,
-        })
+        });
     } catch (error: any) {
-        console.error('createBranch error:', error)
+        if (transaction) {
+            try {
+                await transaction.rollback();
+            } catch (rollbackError) {
+                console.error('Transaction rollback error:', rollbackError);
+            }
+        }
+
+        console.error('createBranch error:', error);
 
         return res.status(500).json({
             message: 'Internal server error',
             error: error.message,
-        })
+        });
     }
-}
+};
 
 export const updateBranch = async (req: AuthRequest, res: Response) => {
+    let transaction: Transaction | undefined;
+
     try {
         const {
             id,
             branchName,
             branchCode,
-            departmentId,
+            senderId,
             activeFlag,
-        } = req.body
+        } = req.body;
 
-        const userId = req.user?.id
+        const userId = req.user?.id;
+
+        if (!userId) {
+            return res.status(401).json({
+                message: 'User authentication is required',
+            });
+        }
 
         if (!id) {
             return res.status(400).json({
                 message: 'Branch ID is required',
-            })
+            });
         }
 
-        const branch = await Branch.findByPk(id)
+        const branch = await Branch.findByPk(id);
 
         if (!branch) {
             return res.status(404).json({
                 message: 'Branch not found',
-            })
+            });
         }
 
-        const newDepartmentId = departmentId ?? branch.departmentId
-        const newBranchCode = branchCode ?? branch.branchCode
+        const newSenderId = senderId ?? branch.senderId;
+        const newBranchCode = branchCode ?? branch.branchCode;
 
-        // Validate department if it is being changed
-        if (departmentId && departmentId !== branch.departmentId) {
-            const department = await Department.findByPk(departmentId)
+        if (senderId && senderId !== branch.senderId) {
+            const sender = await Sender.findByPk(senderId);
 
-            if (!department) {
+            if (!sender) {
                 return res.status(404).json({
-                    message: 'Department not found',
-                })
+                    message: 'Sender not found',
+                });
             }
         }
 
-        // Check duplicate branch code within the target department
         if (
             newBranchCode !== branch.branchCode ||
-            newDepartmentId !== branch.departmentId
+            newSenderId !== branch.senderId
         ) {
             const existingBranch = await Branch.findOne({
                 where: {
                     branchCode: newBranchCode,
-                    departmentId: newDepartmentId,
+                    senderId: newSenderId,
+                    id: { [Op.ne]: id },
                 },
-            })
+            });
 
-            if (existingBranch && existingBranch.id !== branch.id) {
+            if (existingBranch) {
                 return res.status(400).json({
-                    message:
-                        'Branch code already exists in this department',
-                })
+                    message: 'Branch code already exists for this sender',
+                });
             }
         }
 
-        await branch.update({
-            branchName: branchName ?? branch.branchName,
-            branchCode: newBranchCode,
-            departmentId: newDepartmentId,
-            activeFlag: activeFlag ?? branch.activeFlag,
-            updatedBy: userId ?? null,
-            updatedOn: new Date(),
-        })
+        const previousBranch = branch.toJSON();
+
+        transaction = await sequelize.transaction();
+
+        await branch.update(
+            {
+                branchName: branchName ?? branch.branchName,
+                branchCode: newBranchCode,
+                senderId: newSenderId,
+                activeFlag: activeFlag ?? branch.activeFlag,
+                updatedBy: userId,
+                updatedOn: new Date(),
+            },
+            { transaction }
+        );
+
+        await Audit.create(
+            {
+                entity: EntityType.BRANCH,
+                entityId: branch.id,
+                action: 'Update',
+                performedBy: userId,
+                remarks: `Branch "${branch.branchName}" updated. Previous values: ${JSON.stringify(previousBranch)}`,
+                ipAddress:
+                    req.ip || req.socket.remoteAddress || 'unknown',
+                timestamp: new Date(),
+            },
+            { transaction }
+        );
+
+        await transaction.commit();
 
         return res.status(200).json({
             message: 'Branch updated successfully',
             data: branch,
-        })
+        });
     } catch (error: any) {
-        console.error('updateBranch error:', error)
+        if (transaction) {
+            try {
+                await transaction.rollback();
+            } catch (rollbackError) {
+                console.error('Transaction rollback error:', rollbackError);
+            }
+        }
+
+        console.error('updateBranch error:', error);
 
         return res.status(500).json({
             message: 'Internal server error',
             error: error.message,
-        })
+        });
     }
-}
+};
 
 export const getBranches = async (req: AuthRequest, res: Response) => {
     try {
         const branches = await Branch.findAll({
             include: [
                 {
-                    model: Department,
-                    as: 'department',
-                    attributes: ['id', 'departmentName', 'departmentCode'],
+                    model: Sender,
+                    as: 'sender',
+                    attributes: [
+                        'id',
+                        'senderName',
+                        'senderType',
+                        'organization',
+                    ],
                 },
             ],
             order: [['branchName', 'ASC']],
-        })
+        });
 
         return res.status(200).json({
             message: 'Branches fetched successfully',
             data: branches,
-        })
+        });
     } catch (error: any) {
-        console.error('getBranches error:', error)
+        console.error('getBranches error:', error);
 
         return res.status(500).json({
             message: 'Failed to fetch branches',
             error: error?.message || error,
-        })
+        });
     }
-}
+};
 
 export const getBranchById = async (req: AuthRequest, res: Response) => {
     try {
-        const { id } = req.params
+        const { id } = req.params;
 
         const branch = await Branch.findByPk(id, {
             include: [
                 {
-                    model: Department,
-                    as: 'department',
-                    attributes: ['id', 'departmentName', 'departmentCode'],
+                    model: Sender,
+                    as: 'sender',
+                    attributes: [
+                        'id',
+                        'senderName',
+                        'senderType',
+                        'organization',
+                    ],
                 },
             ],
-        })
+        });
 
         if (!branch) {
             return res.status(404).json({
                 message: 'Branch not found',
-            })
+            });
         }
 
         return res.status(200).json({
             message: 'Branch fetched successfully',
             data: branch,
-        })
+        });
     } catch (error: any) {
-        console.error('getBranchById error:', error)
+        console.error('getBranchById error:', error);
 
         return res.status(500).json({
             message: 'Failed to fetch branch',
             error: error?.message || error,
-        })
+        });
     }
-}
+};
 
-export const getBranchesByDepartmentId = async (
+export const getBranchesBySenderId = async (
     req: AuthRequest,
     res: Response
 ) => {
     try {
-        const { departmentId } = req.params
+        const { senderId } = req.params;
 
-        // Check whether the department exists
-        const department = await Department.findByPk(departmentId)
+        const sender = await Sender.findByPk(senderId);
 
-        if (!department) {
+        if (!sender) {
             return res.status(404).json({
-                message: 'Department not found',
-            })
+                message: 'Sender not found',
+            });
         }
 
         const branches = await Branch.findAll({
             where: {
-                departmentId,
+                senderId,
             },
             order: [['branchName', 'ASC']],
-        })
+        });
 
         return res.status(200).json({
             message: 'Branches fetched successfully',
             data: branches,
-        })
+        });
     } catch (error: any) {
-        console.error('getBranchesByDepartmentId error:', error)
+        console.error('getBranchesBySenderId error:', error);
 
         return res.status(500).json({
             message: 'Failed to fetch branches',
             error: error?.message || error,
-        })
+        });
     }
-}
+};

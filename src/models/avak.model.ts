@@ -18,7 +18,6 @@ interface AvakAttributes {
     confidentiality: string;
     senderId: string;
     receivingMode: string;
-    departmentId: string | null;
     branchId: string | null;
     slaDays: number;
     markedSectionId: string;
@@ -38,7 +37,6 @@ type AvakCreationAttributes = Optional<
     | 'letterReferenceNumber'
     | 'letterDate'
     | 'briefDescription'
-    | 'departmentId'
     | 'branchId'
     | 'updatedBy'
     | 'markedBy'
@@ -63,7 +61,6 @@ export class Avak
     public confidentiality!: string;
     public senderId!: string;
     public receivingMode!: string;
-    public departmentId!: string | null;
     public branchId!: string | null;
     public slaDays!: number;
     public markedSectionId!: string;
@@ -156,12 +153,6 @@ export class Avak
                     field: 'receiving_mode',
                 },
 
-                departmentId: {
-                    type: DataTypes.UUID,
-                    allowNull: true,
-                    field: 'department_id',
-                },
-
                 branchId: {
                     type: DataTypes.UUID,
                     allowNull: true,
@@ -221,23 +212,23 @@ export class Avak
                 timestamps: true,
                 underscored: true,
 
-                hooks: {
-                    beforeValidate: async (avak) => {
-                        if (!avak.isNewRecord || avak.avakNumber) {
-                            return;
-                        }
+               hooks: {
+         beforeValidate: async (avak) => {
+        if (!avak.isNewRecord || avak.avakNumber) {
+            return;
+        }
 
-                        const [results] = await sequelize.query(
-                            `SELECT 'AVK-' || nextval('avak_number_seq') AS avak_number`
-                        );
+        const [results] = await sequelize.query(
+            `SELECT 'AVK-' || LPAD(nextval('avak_number_seq')::TEXT, 4, '0') AS avak_number`
+        );
 
-                        const row = (results as Array<{
-                            avak_number: string;
-                        }>)[0];
+        const row = (results as Array<{
+            avak_number: string;
+        }>)[0];
 
-                        avak.avakNumber = row.avak_number;
-                    },
-                },
+        avak.avakNumber = row.avak_number;
+      },
+    }
             }
         );
     }

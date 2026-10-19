@@ -30,7 +30,7 @@ import branchRoutes from './routes/branchRoutes'
 import sectionRoutes from './routes/sectionRoutes'
 import userSectionRoutes from './routes/userSectionRoutes'
 import senderRoutes from './routes/senderRoutes'
-
+import avakRoutes from './routes/avakRoutes'
 import notificationRoutes from './routes/notificationOrdmsRoutes'
 const app = express()
 const port = process.env.PORT || 5050
@@ -89,6 +89,7 @@ app.use('/api/branches', branchRoutes)
 app.use('/api/sections', sectionRoutes)
 app.use('/api/user-sections', userSectionRoutes)
 app.use('/api/senders', senderRoutes)
+app.use('/api/avak', avakRoutes)
 // const startNotificationJob = async () => {
 //   console.log('🚀 Running Notification Job on Startup')
 //   await generateNotifications()

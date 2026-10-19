@@ -13,28 +13,23 @@ export enum DocumentType {
 }
 
 export enum EntityType {
-  OLD_RECORD = 'Old-Record',
-  BUILDING = 'Building',
-  DEVELOPER = 'Developer',
-  ARCHITECT = 'Architect',
-  DOCUMENT = 'Document',
-  ROLE = 'Role',
-  OBJECTION = 'Objection',
-  ASSIGNROLE = 'AssignRole',
-  REALATION = 'Relation',
-  CREATION = 'Creation',
-  SMS_TEMPLATE = 'SmsTemplate',
-  IOD = 'IOD',
-  BUILDING_CC = 'Building-CC',
-  BUILDING_OC = 'Building-OC',
-  SURPLUS_AREA = 'Surplus-Area',
-  BUILDING_DOC = 'Building-Doc',
-  BUILDING_STATUS_PHOTO = 'Building-Status-Photo',
-  ZONE = 'Zone',
-  NOC = 'Noc',
+  // Master Modules
   USER = 'User',
-  WARD = 'Ward',
+  ROLE = 'Role',
+  DEPARTMENT = 'Department',
+  BRANCH = 'Branch',
+  SECTION = 'Section',
+  SUBJECT = 'Subject',
+  SENDER = 'Sender',
+  USER_SECTION = 'UserSection',
 
+  // Inward / AVAK Module
+  AVAK = 'Avak',
+  DOCUMENT = 'Document',
+  REMARK = 'Remark',
+
+  // Other Modules
+  AUDIT = 'Audit',
 }
 
 export enum UserType {

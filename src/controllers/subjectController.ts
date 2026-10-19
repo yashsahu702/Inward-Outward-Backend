@@ -3,142 +3,232 @@ import { Response } from 'express'
 import { Subject } from '../models/subject.model'
 import { Department } from '../models/department.model'
 import { AuthRequest } from '../types/auth.types'
+import { sequelize, Audit} from '../models';
+import { EntityType } from '../models/enums';
+import { Transaction, Op } from 'sequelize';
 
 export const createSubject = async (req: AuthRequest, res: Response) => {
+    let transaction: Transaction | undefined;
+
     try {
         const {
             subjectName,
             subjectCode,
             departmentId,
             activeFlag,
-        } = req.body
+        } = req.body;
 
-        const userId = req.user?.id
+        const userId = req.user?.id;
+
+        if (!userId) {
+            return res.status(401).json({
+                message: 'User authentication is required',
+            });
+        }
 
         if (!subjectName || !departmentId) {
             return res.status(400).json({
                 message: 'Subject name and department ID are required',
-            })
+            });
         }
 
-        // Check whether the department exists
-        const department = await Department.findByPk(departmentId)
+        const department = await Department.findByPk(departmentId);
 
         if (!department) {
             return res.status(404).json({
                 message: 'Department not found',
-            })
+            });
         }
 
-        // Check duplicate subject code, if provided
         if (subjectCode) {
             const existingSubject = await Subject.findOne({
                 where: { subjectCode },
-            })
+            });
 
             if (existingSubject) {
                 return res.status(400).json({
                     message: 'Subject code already exists',
-                })
+                });
             }
         }
 
-        const subject = await Subject.create({
-            subjectName,
-            subjectCode: subjectCode || null,
-            departmentId,
-            activeFlag: activeFlag ?? true,
-            createdBy: userId ?? null,
-            createdOn: new Date(),
-        })
+        transaction = await sequelize.transaction();
+
+        const subject = await Subject.create(
+            {
+                subjectName,
+                subjectCode: subjectCode || null,
+                departmentId,
+                activeFlag: activeFlag ?? true,
+                createdBy: userId,
+                createdOn: new Date(),
+            },
+            { transaction }
+        );
+
+        await Audit.create(
+            {
+                entity: EntityType.SUBJECT,
+                entityId: subject.id,
+                action: 'Create',
+                performedBy: userId,
+                remarks: `Subject "${subject.subjectName}" created successfully`,
+                ipAddress:
+                    req.ip ||
+                    req.socket.remoteAddress ||
+                    'unknown',
+                timestamp: new Date(),
+            },
+            { transaction }
+        );
+
+        await transaction.commit();
 
         return res.status(201).json({
             message: 'Subject created successfully',
             data: subject,
-        })
+        });
     } catch (error: any) {
-        console.error('createSubject error:', error)
+        if (transaction) {
+            try {
+                await transaction.rollback();
+            } catch (rollbackError) {
+                console.error('Transaction rollback error:', rollbackError);
+            }
+        }
+
+        console.error('createSubject error:', error);
 
         return res.status(500).json({
             message: 'Internal server error',
             error: error.message,
-        })
+        });
     }
-}
+};
 
 export const updateSubject = async (req: AuthRequest, res: Response) => {
-    try {
-        const { id, subjectName, subjectCode, departmentId, activeFlag } =
-            req.body
+    let transaction: Transaction | undefined;
 
-        const userId = req.user?.id
+    try {
+        const {
+            id,
+            subjectName,
+            subjectCode,
+            departmentId,
+            activeFlag,
+        } = req.body;
+
+        const userId = req.user?.id;
+
+        if (!userId) {
+            return res.status(401).json({
+                message: 'User authentication is required',
+            });
+        }
 
         if (!id) {
             return res.status(400).json({
                 message: 'Subject ID is required',
-            })
+            });
         }
 
-        const subject = await Subject.findByPk(id)
+        const subject = await Subject.findByPk(id);
 
         if (!subject) {
             return res.status(404).json({
                 message: 'Subject not found',
-            })
+            });
         }
 
-        // Check duplicate subject code when changing it
         if (
             subjectCode &&
             subjectCode !== subject.subjectCode
         ) {
             const existingSubject = await Subject.findOne({
-                where: { subjectCode },
-            })
+                where: {
+                    subjectCode,
+                    id: { [Op.ne]: id },
+                },
+            });
 
             if (existingSubject) {
                 return res.status(400).json({
                     message: 'Subject code already exists',
-                })
+                });
             }
         }
 
-        // Validate department if it is being changed
-        if (departmentId && departmentId !== subject.departmentId) {
-            const department = await Department.findByPk(departmentId)
+        if (
+            departmentId &&
+            departmentId !== subject.departmentId
+        ) {
+            const department = await Department.findByPk(departmentId);
 
             if (!department) {
                 return res.status(404).json({
                     message: 'Department not found',
-                })
+                });
             }
         }
 
-        await subject.update({
-            subjectName: subjectName ?? subject.subjectName,
-            subjectCode:
-                subjectCode === undefined
-                    ? subject.subjectCode
-                    : subjectCode || null,
-            departmentId: departmentId ?? subject.departmentId,
-            activeFlag: activeFlag ?? subject.activeFlag,
-            updatedBy: userId ?? null,
-            updatedOn: new Date(),
-        })
+        const previousSubject = subject.toJSON();
+
+        transaction = await sequelize.transaction();
+
+        await subject.update(
+            {
+                subjectName: subjectName ?? subject.subjectName,
+                subjectCode:
+                    subjectCode === undefined
+                        ? subject.subjectCode
+                        : subjectCode || null,
+                departmentId: departmentId ?? subject.departmentId,
+                activeFlag: activeFlag ?? subject.activeFlag,
+                updatedBy: userId,
+                updatedOn: new Date(),
+            },
+            { transaction }
+        );
+
+        await Audit.create(
+            {
+                entity: EntityType.SUBJECT,
+                entityId: subject.id,
+                action: 'Update',
+                performedBy: userId,
+                remarks: `Subject "${subject.subjectName}" updated. Previous values: ${JSON.stringify(previousSubject)}`,
+                ipAddress:
+                    req.ip ||
+                    req.socket.remoteAddress ||
+                    'unknown',
+                timestamp: new Date(),
+            },
+            { transaction }
+        );
+
+        await transaction.commit();
 
         return res.status(200).json({
             message: 'Subject updated successfully',
             data: subject,
-        })
+        });
     } catch (error: any) {
-        console.error('updateSubject error:', error)
+        if (transaction) {
+            try {
+                await transaction.rollback();
+            } catch (rollbackError) {
+                console.error('Transaction rollback error:', rollbackError);
+            }
+        }
+
+        console.error('updateSubject error:', error);
 
         return res.status(500).json({
             message: 'Internal server error',
             error: error.message,
-        })
+        });
     }
-}
+};
 
 export const getSubjects = async (req: AuthRequest, res: Response) => {
     try {
