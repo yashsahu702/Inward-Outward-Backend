@@ -223,14 +223,14 @@ UserSection.belongsTo(Section, {
 // Department -> Subject (One-to-Many)
 // ==========================================
 
-Department.hasMany(Subject, {
-    foreignKey: 'departmentId',
+Sender.hasMany(Subject, {
+    foreignKey: 'senderId',
     as: 'subjects',
 });
 
-Subject.belongsTo(Department, {
-    foreignKey: 'departmentId',
-    as: 'department',
+Subject.belongsTo(Sender, {
+    foreignKey: 'senderId',
+    as: 'sender',
 });
 
 // ==========================================

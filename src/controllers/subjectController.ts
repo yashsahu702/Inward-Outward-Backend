@@ -1,12 +1,12 @@
-
-import { Response } from 'express'
-import { Subject } from '../models/subject.model'
-import { Department } from '../models/department.model'
-import { AuthRequest } from '../types/auth.types'
-import { sequelize, Audit} from '../models';
+import { Response } from 'express';
+import { Op, Transaction } from 'sequelize';
+import { Subject } from '../models/subject.model';
+import { Sender } from '../models/sender.model';
+import { AuthRequest } from '../types/auth.types';
+import { sequelize, Audit } from '../models';
 import { EntityType } from '../models/enums';
-import { Transaction, Op } from 'sequelize';
 
+// CREATE SUBJECT
 export const createSubject = async (req: AuthRequest, res: Response) => {
     let transaction: Transaction | undefined;
 
@@ -14,7 +14,7 @@ export const createSubject = async (req: AuthRequest, res: Response) => {
         const {
             subjectName,
             subjectCode,
-            departmentId,
+            senderId,
             activeFlag,
         } = req.body;
 
@@ -26,23 +26,25 @@ export const createSubject = async (req: AuthRequest, res: Response) => {
             });
         }
 
-        if (!subjectName || !departmentId) {
+        if (!subjectName?.trim() || !senderId) {
             return res.status(400).json({
-                message: 'Subject name and department ID are required',
+                message: 'Subject name and sender ID are required',
             });
         }
 
-        const department = await Department.findByPk(departmentId);
+        const sender = await Sender.findByPk(senderId);
 
-        if (!department) {
+        if (!sender) {
             return res.status(404).json({
-                message: 'Department not found',
+                message: 'Sender not found',
             });
         }
 
-        if (subjectCode) {
+        if (subjectCode?.trim()) {
             const existingSubject = await Subject.findOne({
-                where: { subjectCode },
+                where: {
+                    subjectCode: subjectCode.trim(),
+                },
             });
 
             if (existingSubject) {
@@ -56,9 +58,9 @@ export const createSubject = async (req: AuthRequest, res: Response) => {
 
         const subject = await Subject.create(
             {
-                subjectName,
-                subjectCode: subjectCode || null,
-                departmentId,
+                subjectName: subjectName.trim(),
+                subjectCode: subjectCode?.trim() || null,
+                senderId,
                 activeFlag: activeFlag ?? true,
                 createdBy: userId,
                 createdOn: new Date(),
@@ -106,6 +108,7 @@ export const createSubject = async (req: AuthRequest, res: Response) => {
     }
 };
 
+// UPDATE SUBJECT
 export const updateSubject = async (req: AuthRequest, res: Response) => {
     let transaction: Transaction | undefined;
 
@@ -114,7 +117,7 @@ export const updateSubject = async (req: AuthRequest, res: Response) => {
             id,
             subjectName,
             subjectCode,
-            departmentId,
+            senderId,
             activeFlag,
         } = req.body;
 
@@ -141,12 +144,13 @@ export const updateSubject = async (req: AuthRequest, res: Response) => {
         }
 
         if (
-            subjectCode &&
-            subjectCode !== subject.subjectCode
+            subjectCode !== undefined &&
+            subjectCode?.trim() &&
+            subjectCode.trim() !== subject.subjectCode
         ) {
             const existingSubject = await Subject.findOne({
                 where: {
-                    subjectCode,
+                    subjectCode: subjectCode.trim(),
                     id: { [Op.ne]: id },
                 },
             });
@@ -159,14 +163,14 @@ export const updateSubject = async (req: AuthRequest, res: Response) => {
         }
 
         if (
-            departmentId &&
-            departmentId !== subject.departmentId
+            senderId !== undefined &&
+            senderId !== subject.senderId
         ) {
-            const department = await Department.findByPk(departmentId);
+            const sender = await Sender.findByPk(senderId);
 
-            if (!department) {
+            if (!sender) {
                 return res.status(404).json({
-                    message: 'Department not found',
+                    message: 'Sender not found',
                 });
             }
         }
@@ -177,12 +181,18 @@ export const updateSubject = async (req: AuthRequest, res: Response) => {
 
         await subject.update(
             {
-                subjectName: subjectName ?? subject.subjectName,
+                subjectName:
+                    subjectName === undefined
+                        ? subject.subjectName
+                        : subjectName.trim(),
+
                 subjectCode:
                     subjectCode === undefined
                         ? subject.subjectCode
-                        : subjectCode || null,
-                departmentId: departmentId ?? subject.departmentId,
+                        : subjectCode?.trim() || null,
+
+                senderId: senderId ?? subject.senderId,
+
                 activeFlag: activeFlag ?? subject.activeFlag,
                 updatedBy: userId,
                 updatedOn: new Date(),
@@ -230,101 +240,117 @@ export const updateSubject = async (req: AuthRequest, res: Response) => {
     }
 };
 
+// GET ALL SUBJECTS
 export const getSubjects = async (req: AuthRequest, res: Response) => {
     try {
         const subjects = await Subject.findAll({
             include: [
                 {
-                    model: Department,
-                    as: 'department',
-                    attributes: ['id', 'departmentName', 'departmentCode'],
+                    model: Sender,
+                    as: 'sender',
+                    attributes: [
+                        'id',
+                        'senderName',
+                        'senderType',
+                        'organization',
+                        'designation',
+                    ],
                 },
             ],
             order: [['subjectName', 'ASC']],
-        })
+        });
 
         return res.status(200).json({
             message: 'Subjects fetched successfully',
             data: subjects,
-        })
+        });
     } catch (error: any) {
-        console.error('getSubjects error:', error)
+        console.error('getSubjects error:', error);
 
         return res.status(500).json({
             message: 'Failed to fetch subjects',
             error: error?.message || error,
-        })
+        });
     }
-}
+};
 
-export const getSubjectById = async (req: AuthRequest, res: Response) => {
+// GET SUBJECT BY ID
+export const getSubjectById = async (
+    req: AuthRequest,
+    res: Response
+) => {
     try {
-        const { id } = req.params
+        const { id } = req.params;
 
         const subject = await Subject.findByPk(id, {
             include: [
                 {
-                    model: Department,
-                    as: 'department',
-                    attributes: ['id', 'departmentName', 'departmentCode'],
+                    model: Sender,
+                    as: 'sender',
+                    attributes: [
+                        'id',
+                        'senderName',
+                        'senderType',
+                        'organization',
+                        'designation',
+                    ],
                 },
             ],
-        })
+        });
 
         if (!subject) {
             return res.status(404).json({
                 message: 'Subject not found',
-            })
+            });
         }
 
         return res.status(200).json({
             message: 'Subject fetched successfully',
             data: subject,
-        })
+        });
     } catch (error: any) {
-        console.error('getSubjectById error:', error)
+        console.error('getSubjectById error:', error);
 
         return res.status(500).json({
             message: 'Failed to fetch subject',
             error: error?.message || error,
-        })
+        });
     }
-}
+};
 
-
-export const getSubjectsByDepartmentId = async (
+// GET SUBJECTS BY SENDER ID
+export const getSubjectsBySenderId = async (
     req: AuthRequest,
     res: Response
 ) => {
     try {
-        const { departmentId } = req.params
+        const { senderId } = req.params;
 
-        // Check whether the department exists
-        const department = await Department.findByPk(departmentId)
+        const sender = await Sender.findByPk(senderId);
 
-        if (!department) {
+        if (!sender) {
             return res.status(404).json({
-                message: 'Department not found',
-            })
+                message: 'Sender not found',
+            });
         }
 
         const subjects = await Subject.findAll({
             where: {
-                departmentId,
+                senderId,
             },
             order: [['subjectName', 'ASC']],
-        })
+        });
 
         return res.status(200).json({
             message: 'Subjects fetched successfully',
             data: subjects,
-        })
+        });
     } catch (error: any) {
-        console.error('getSubjectsByDepartmentId error:', error)
+        console.error('getSubjectsBySenderId error:', error);
 
         return res.status(500).json({
             message: 'Failed to fetch subjects',
             error: error?.message || error,
-        })
+        });
     }
-}
+};

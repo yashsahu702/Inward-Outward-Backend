@@ -5,7 +5,7 @@ import {
     updateSubject,
     getSubjects,
     getSubjectById,
-    getSubjectsByDepartmentId,
+    getSubjectsBySenderId,
 } from '../controllers/subjectController'
 
 const router = Router()
@@ -15,7 +15,7 @@ router.post('/updateSubject', updateSubject)
 router.get('/getSubjects', getSubjects)
 router.get('/getSubjectById/:id', getSubjectById)
 router.get(
-    '/getBydepartmentId/:departmentId',
-    getSubjectsByDepartmentId
+    '/getBySenderId/:senderId',
+    getSubjectsBySenderId
 )
 export default router

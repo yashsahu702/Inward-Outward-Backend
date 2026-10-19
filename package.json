@@ -8,6 +8,7 @@
     "sync-db:dev": "cross-env NODE_ENV=development ts-node src/scripts/syncDatabase.ts",
     "populate-zones-wards:dev": "cross-env NODE_ENV=development ts-node src/scripts/populateZonesAndWards.ts",
     "populate-users-new:dev": "cross-env NODE_ENV=development ts-node src/scripts/populateMasterData.ts",
+    "seed-gov-data:dev": "cross-env NODE_ENV=development ts-node src/scripts/seedGovernmentData.ts",
     "populate-sms-templates:dev": "cross-env NODE_ENV=development ts-node src/scripts/populateLoginOtpTemplate.ts",
     "send-everyone-credentials:dev": "cross-env NODE_ENV=development ts-node src/scripts/sendEmailCredentialsToDevArch.ts",
     "db-create:uat": "cross-env NODE_ENV=uat npx sequelize-cli db:create --config src/config/sequelizeConfig.mjs --migrations-path src/migrations",

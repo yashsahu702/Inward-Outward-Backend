@@ -4,7 +4,7 @@ interface SubjectAttributes {
     id: string;
     subjectName: string;
     subjectCode?: string | null;
-    departmentId: string;
+    senderId: string;
     activeFlag: boolean;
     createdBy?: string | null;
     createdOn?: Date;
@@ -30,7 +30,7 @@ export class Subject
     public id!: string;
     public subjectName!: string;
     public subjectCode?: string | null;
-    public departmentId!: string;
+    public senderId!: string;
     public activeFlag!: boolean;
     public createdBy!: string | null;
     public createdOn!: Date;
@@ -57,10 +57,10 @@ export class Subject
                     allowNull: true,
                     field: 'subject_code',
                 },
-                departmentId: {
+                senderId: {
                     type: DataTypes.UUID,
                     allowNull: false,
-                    field: 'department_id',
+                    field: 'sender_id',
                 },
                 activeFlag: {
                     type: DataTypes.BOOLEAN,
