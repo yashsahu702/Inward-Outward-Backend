@@ -1,13 +1,13 @@
 
 import { Router } from 'express'
 import { createAvak, getAllAvak, getAvakById, updateAvak } from '../controllers/avakController'
-
+import { authenticateJWT } from '../middleware/auth'
 const router = Router()
 
-router.post('/createBranch', createAvak)
-router.post('/updateBranch', updateAvak)
-router.get('/getAll', getAllAvak);
-router.get('/getByAvakId/:id', getAvakById);
+router.post('/createBranch',authenticateJWT, createAvak)
+router.post('/updateBranch',authenticateJWT, updateAvak)
+router.get('/getAll',authenticateJWT, getAllAvak);
+router.get('/getByAvakId/:id',authenticateJWT, getAvakById);
 export default router
 
 

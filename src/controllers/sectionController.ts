@@ -194,25 +194,76 @@ export const updateSection = async (req: AuthRequest, res: Response) => {
     }
 };
 
+
+
 export const getSections = async (req: AuthRequest, res: Response) => {
     try {
-        const sections = await Section.findAll({
+        const {
+            page = '1',
+            limit = '10',
+            sectionName,
+            sectionCode,
+        } = req.body;
+
+        const pageNumber = Number(page);
+        const pageSize = Number(limit);
+
+        if (
+            !Number.isInteger(pageNumber) ||
+            pageNumber < 1 ||
+            !Number.isInteger(pageSize) ||
+            pageSize < 1 ||
+            pageSize > 100
+        ) {
+            return res.status(400).json({
+                message: 'Page must be positive and limit must be between 1 and 100.',
+            });
+        }
+
+        const where: any = {};
+
+        if (typeof sectionName === 'string' && sectionName.trim()) {
+            where.sectionName = {
+                [Op.iLike]: `%${sectionName.trim()}%`,
+            };
+        }
+
+        if (typeof sectionCode === 'string' && sectionCode.trim()) {
+            where.sectionCode = {
+                [Op.iLike]: `%${sectionCode.trim()}%`,
+            };
+        }
+
+        const { count, rows } = await Section.findAndCountAll({
+            where,
             order: [['sectionName', 'ASC']],
-        })
+            limit: pageSize,
+            offset: (pageNumber - 1) * pageSize,
+        });
+
+        const totalPages = Math.ceil(count / pageSize);
 
         return res.status(200).json({
             message: 'Sections fetched successfully',
-            data: sections,
-        })
+            pagination: {
+                totalRecords: count,
+                totalPages,
+                currentPage: pageNumber,
+                pageSize,
+                hasNextPage: pageNumber < totalPages,
+                hasPreviousPage: pageNumber > 1,
+            },
+            data: rows,
+        });
     } catch (error: any) {
-        console.error('getSections error:', error)
+        console.error('getSections error:', error);
 
         return res.status(500).json({
             message: 'Failed to fetch sections',
             error: error?.message || error,
-        })
+        });
     }
-}
+};
 
 export const getSectionById = async (req: AuthRequest, res: Response) => {
     try {

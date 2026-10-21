@@ -411,39 +411,104 @@ export const updateUserSection = async (
 };
 
 
-
 export const getUserSections = async (
     req: AuthRequest,
     res: Response
 ) => {
     try {
-        const mappings = await UserSection.findAll({
+        const {
+            page = '1',
+            limit = '10',
+            name,
+            username,
+            sectionName,
+        } = req.body;
+
+        const pageNumber = Number(page);
+        const pageSize = Number(limit);
+
+        if (
+            !Number.isInteger(pageNumber) ||
+            pageNumber < 1 ||
+            !Number.isInteger(pageSize) ||
+            pageSize < 1 ||
+            pageSize > 100
+        ) {
+            return res.status(400).json({
+                message: 'Page must be positive and limit must be between 1 and 100.',
+            });
+        }
+
+        const userWhere: any = {};
+        const sectionWhere: any = {};
+
+        if (typeof name === 'string' && name.trim()) {
+            userWhere.name = {
+                [Op.iLike]: `%${name.trim()}%`,
+            };
+        }
+
+        if (typeof username === 'string' && username.trim()) {
+            userWhere.username = {
+                [Op.iLike]: `%${username.trim()}%`,
+            };
+        }
+
+        if (typeof sectionName === 'string' && sectionName.trim()) {
+            sectionWhere.sectionName = {
+                [Op.iLike]: `%${sectionName.trim()}%`,
+            };
+        }
+
+        const { count, rows } = await UserSection.findAndCountAll({
+            where: {},
             include: [
                 {
                     model: User,
                     as: 'user',
+                    where: Object.keys(userWhere).length
+                        ? userWhere
+                        : undefined,
+                    required: Object.keys(userWhere).length > 0,
                 },
                 {
                     model: Section,
                     as: 'section',
+                    where: Object.keys(sectionWhere).length
+                        ? sectionWhere
+                        : undefined,
+                    required: Object.keys(sectionWhere).length > 0,
                 },
             ],
             order: [['createdOn', 'DESC']],
-        })
+            limit: pageSize,
+            offset: (pageNumber - 1) * pageSize,
+            distinct: true,
+        });
+
+        const totalPages = Math.ceil(count / pageSize);
 
         return res.status(200).json({
             message: 'User-section mappings fetched successfully',
-            data: mappings,
-        })
+            pagination: {
+                totalRecords: count,
+                totalPages,
+                currentPage: pageNumber,
+                pageSize,
+                hasNextPage: pageNumber < totalPages,
+                hasPreviousPage: pageNumber > 1,
+            },
+            data: rows,
+        });
     } catch (error: any) {
-        console.error('getUserSections error:', error)
+        console.error('getUserSections error:', error);
 
         return res.status(500).json({
             message: 'Failed to fetch user-section mappings',
             error: error?.message || error,
-        })
+        });
     }
-}
+};
 
 export const getUserSectionById = async (
     req: AuthRequest,
@@ -485,42 +550,88 @@ export const getUserSectionById = async (
     }
 }
 
+
 export const getUserSectionsByUserId = async (
     req: AuthRequest,
     res: Response
 ) => {
     try {
-        const { userId } = req.params
+        const { userId } = req.params;
+        const {
+            page = '1',
+            limit = '10',
+            sectionName,
+        } = req.body;
 
-        const user = await User.findByPk(userId)
+        const pageNumber = Number(page);
+        const pageSize = Number(limit);
+
+        if (
+            !Number.isInteger(pageNumber) ||
+            pageNumber < 1 ||
+            !Number.isInteger(pageSize) ||
+            pageSize < 1 ||
+            pageSize > 100
+        ) {
+            return res.status(400).json({
+                message: 'Page must be positive and limit must be between 1 and 100.',
+            });
+        }
+
+        const user = await User.findByPk(userId);
 
         if (!user) {
             return res.status(404).json({
                 message: 'User not found',
-            })
+            });
         }
 
-        const mappings = await UserSection.findAll({
+        const sectionWhere: any = {};
+
+        if (typeof sectionName === 'string' && sectionName.trim()) {
+            sectionWhere.sectionName = {
+                [Op.iLike]: `%${sectionName.trim()}%`,
+            };
+        }
+
+        const { count, rows } = await UserSection.findAndCountAll({
             where: { userId },
             include: [
                 {
                     model: Section,
                     as: 'section',
+                    where: Object.keys(sectionWhere).length
+                        ? sectionWhere
+                        : undefined,
+                    required: Object.keys(sectionWhere).length > 0,
                 },
             ],
             order: [['createdOn', 'DESC']],
-        })
+            limit: pageSize,
+            offset: (pageNumber - 1) * pageSize,
+            distinct: true,
+        });
+
+        const totalPages = Math.ceil(count / pageSize);
 
         return res.status(200).json({
             message: 'User sections fetched successfully',
-            data: mappings,
-        })
+            pagination: {
+                totalRecords: count,
+                totalPages,
+                currentPage: pageNumber,
+                pageSize,
+                hasNextPage: pageNumber < totalPages,
+                hasPreviousPage: pageNumber > 1,
+            },
+            data: rows,
+        });
     } catch (error: any) {
-        console.error('getUserSectionsByUserId error:', error)
+        console.error('getUserSectionsByUserId error:', error);
 
         return res.status(500).json({
             message: 'Failed to fetch sections for user',
             error: error?.message || error,
-        })
+        });
     }
-}
+};

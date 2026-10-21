@@ -7,15 +7,16 @@ import {
     getBranchById,
     getBranchesBySenderId,
 } from '../controllers/branchController'
+import { authenticateJWT } from '../middleware/auth'
 
 const router = Router()
 
-router.post('/createBranch', createBranch)
-router.post('/updateBranch', updateBranch)
-router.get('/getBranches', getBranches)
-router.get('/getBranchById/:id', getBranchById)
+router.post('/createBranch',authenticateJWT, createBranch)
+router.post('/updateBranch',authenticateJWT, updateBranch)
+router.get('/getBranches',authenticateJWT, getBranches)
+router.get('/getBranchById/:id',authenticateJWT, getBranchById)
 router.get(
-    '/getBySenderId/:SenderId',
+    '/getBySenderId/:SenderId',authenticateJWT,
     getBranchesBySenderId
 )
 export default router

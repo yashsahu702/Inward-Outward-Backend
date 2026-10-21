@@ -86,73 +86,73 @@ export const getRoles = async (req: AuthRequest, res: Response) => {
 /**
  * Update a Role
  */
-export const updateRole = async (req: AuthRequest, res: Response) => {
-  try {
-    const { id } = req.params
-    const { roleName } = req.body
+// export const updateRole = async (req: AuthRequest, res: Response) => {
+//   try {
+//     const { id } = req.params
+//     const { roleName } = req.body
 
-    const role = await Role.findByPk(id)
-    if (!role) {
-      return res.status(404).json({ error: 'Role not found.' })
-    }
+//     const role = await Role.findByPk(id)
+//     if (!role) {
+//       return res.status(404).json({ error: 'Role not found.' })
+//     }
 
-    if (roleName) {
-      role.roleName = roleName
-    }
+//     if (roleName) {
+//       role.roleName = roleName
+//     }
 
-    await role.save()
+//     await role.save()
 
-    // Optionally log audit
-    await Audit.create({
+//     // Optionally log audit
+//     await Audit.create({
 
-      entity: EntityType.ZONE, // adjust as appropriate
-      entityId: role.roleId,
-      action: 'Update',
-      performedBy: req.user?.id || '00000000-0000-0000-0000-000000000000',
-      remarks: `Role "${role.roleName}" updated.`,
-      ipAddress: req.ip ? req.ip : '',
-      timestamp: new Date(),
-    })
+//       entity: EntityType.ZONE, // adjust as appropriate
+//       entityId: role.roleId,
+//       action: 'Update',
+//       performedBy: req.user?.id || '00000000-0000-0000-0000-000000000000',
+//       remarks: `Role "${role.roleName}" updated.`,
+//       ipAddress: req.ip ? req.ip : '',
+//       timestamp: new Date(),
+//     })
 
-    res.status(200).json(role)
-  } catch (error) {
-    console.error('Error updating role:', error)
-    res.status(500).json({ error: 'Failed to update role.' })
-  }
-}
+//     res.status(200).json(role)
+//   } catch (error) {
+//     console.error('Error updating role:', error)
+//     res.status(500).json({ error: 'Failed to update role.' })
+//   }
+// }
 
 /**
  * Delete a Role
  */
-export const deleteRole = async (req: AuthRequest, res: Response) => {
-  try {
-    const { id } = req.params
+// export const deleteRole = async (req: AuthRequest, res: Response) => {
+//   try {
+//     const { id } = req.params
 
-    const role = await Role.findByPk(id)
-    if (!role) {
-      return res.status(404).json({ error: 'Role not found.' })
-    }
+//     const role = await Role.findByPk(id)
+//     if (!role) {
+//       return res.status(404).json({ error: 'Role not found.' })
+//     }
 
-    await role.destroy()
+//     await role.destroy()
 
-    // Optionally log audit
-    await Audit.create({
+//     // Optionally log audit
+//     await Audit.create({
 
-      entity: EntityType.ZONE, // or whichever entity
-      entityId: role.roleId,
-      action: 'Delete',
-      performedBy: req.user?.id || '00000000-0000-0000-0000-000000000000',
-      remarks: `Role "${role.roleName}" deleted.`,
-      ipAddress: req.ip ? req.ip : '',
-      timestamp: new Date(),
-    })
+//       entity: EntityType.ZONE, // or whichever entity
+//       entityId: role.roleId,
+//       action: 'Delete',
+//       performedBy: req.user?.id || '00000000-0000-0000-0000-000000000000',
+//       remarks: `Role "${role.roleName}" deleted.`,
+//       ipAddress: req.ip ? req.ip : '',
+//       timestamp: new Date(),
+//     })
 
-    res.status(200).json({ message: 'Role deleted successfully.' })
-  } catch (error) {
-    console.error('Error deleting role:', error)
-    res.status(500).json({ error: 'Failed to delete role.' })
-  }
-}
+//     res.status(200).json({ message: 'Role deleted successfully.' })
+//   } catch (error) {
+//     console.error('Error deleting role:', error)
+//     res.status(500).json({ error: 'Failed to delete role.' })
+//   }
+// }
 
 /**
  * Assign Features to a Role

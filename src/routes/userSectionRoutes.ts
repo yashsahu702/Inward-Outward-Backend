@@ -7,16 +7,17 @@ import {
     getUserSectionById,
     getUserSectionsByUserId,
 } from '../controllers/userSectionController'
+import { authenticateJWT } from '../middleware/auth'
 
 const router = Router()
 
-router.post('/createUserSection', createUserSection)
-router.post('/updateUserSection', updateUserSection)
-router.get('/getUserSections', getUserSections)
+router.post('/createUserSection',authenticateJWT, createUserSection)
+router.post('/updateUserSection',authenticateJWT, updateUserSection)
+router.get('/getUserSections',authenticateJWT, getUserSections)
 
 // Keep this route before '/:id'
-router.get('/user/:userId', getUserSectionsByUserId)
+router.get('/user/:userId',authenticateJWT, getUserSectionsByUserId)
 
-router.get('/userSection/:id', getUserSectionById)
+router.get('/userSection/:id',authenticateJWT, getUserSectionById)
 
 export default router

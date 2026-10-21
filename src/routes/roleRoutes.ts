@@ -5,8 +5,7 @@ import {
   createRole,
    getRoles,
   // getRoleById,
-  updateRole,
-  deleteRole,
+ 
   // assignFeaturesToRole,
   // removeFeaturesFromRole,
 } from '../controllers/roleController'
@@ -39,13 +38,13 @@ router.post('/createRole', createRole)
  * PUT /roles/:id
  * Update role by ID
  */
-router.put('/:id', updateRole)
+// router.put('/:id', updateRole)
 
 /**
  * DELETE /roles/:id
  * Delete role by ID
  */
-router.delete('/:id', deleteRole)
+// router.delete('/:id', deleteRole)
 
 /**
  * POST /roles/:roleId/features

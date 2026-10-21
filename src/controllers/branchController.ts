@@ -256,6 +256,102 @@ export const getBranches = async (req: AuthRequest, res: Response) => {
     }
 };
 
+
+export const getBranches1 = async (req: AuthRequest, res: Response) => {
+    try {
+        const {
+            page = '1',
+            limit = '10',
+            branchName,
+            branchCode,
+            organization
+          
+        } = req.body;
+
+        const pageNumber = Number(page);
+        const pageSize = Number(limit);
+
+        if (
+            !Number.isInteger(pageNumber) ||
+            pageNumber < 1 ||
+            !Number.isInteger(pageSize) ||
+            pageSize < 1 ||
+            pageSize > 100
+        ) {
+            return res.status(400).json({
+                message: 'Page must be positive and limit must be between 1 and 100.',
+            });
+        }
+
+        const branchWhere: any = {};
+        const senderWhere: any = {};
+
+        if (typeof branchName === 'string' && branchName.trim()) {
+            branchWhere.branchName = {
+                [Op.iLike]: `%${branchName.trim()}%`,
+            };
+        }
+
+        if (typeof branchCode === 'string' && branchCode.trim()) {
+            branchWhere.branchCode = {
+                [Op.iLike]: `%${branchCode.trim()}%`,
+            };
+        }
+
+        if (typeof organization === 'string' && organization.trim()) {
+            senderWhere.organization = {
+                [Op.iLike]: `%${organization.trim()}%`,
+            };
+        }
+
+
+        const { count, rows } = await Branch.findAndCountAll({
+            where: branchWhere,
+            include: [
+                {
+                    model: Sender,
+                    as: 'sender',
+                    attributes: [
+                        'id',
+                        'senderName',
+                        'senderType',
+                        'organization',
+                        'email',
+                    ],
+                    where: senderWhere,
+                    required: Object.keys(senderWhere).length > 0,
+                },
+            ],
+            order: [['branchName', 'ASC']],
+            limit: pageSize,
+            offset: (pageNumber - 1) * pageSize,
+            distinct: true,
+        });
+
+        const totalPages = Math.ceil(count / pageSize);
+
+        return res.status(200).json({
+            message: 'Branches fetched successfully',
+            pagination: {
+                totalRecords: count,
+                totalPages,
+                currentPage: pageNumber,
+                pageSize,
+                hasNextPage: pageNumber < totalPages,
+                hasPreviousPage: pageNumber > 1,
+            },
+            data: rows,
+        });
+    } catch (error: any) {
+        console.error('getBranches error:', error);
+
+        return res.status(500).json({
+            message: 'Failed to fetch branches',
+            error: error?.message || error,
+        });
+    }
+};
+
 export const getBranchById = async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;

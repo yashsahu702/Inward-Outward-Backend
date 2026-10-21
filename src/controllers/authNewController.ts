@@ -1,6 +1,6 @@
 import { Request, Response } from 'express'
 import { Op } from 'sequelize'
-import { sequelize } from "../models" // <-- change path according to your project
+import { Section, sequelize } from "../models" // <-- change path according to your project
 import jwt from 'jsonwebtoken'
 import { User } from '../models/user.model'
 import { Role } from '../models/role.model'
@@ -163,30 +163,56 @@ export const loginUser = async (req: Request, res: Response) => {
     }
 
     // ✅ 2) Find user with roles + departments
-    const user = await User.findOne({
-      where: { email },
-      include: [
-        {
-          model: Role,
-          as: 'roles',
-          through: { attributes: [] },
-        }
+  const user = await User.findOne({
+  where: { email },
+  attributes: {
+    include: [],
+    exclude: ['isPasswordChanged'],
+  },
+  include: [
+    {
+      model: Role,
+      as: 'roles',
+      through: {
+        attributes: [],
+      },
+    },
+    {
+      model: Section,
+      as: 'sections',
+      attributes: [
+        'id',
+        'sectionName',
+        'sectionCode',
+        'activeFlag',
       ],
-    })
+      through: {
+        attributes: [],
+      },
+    },
+  ],
+});
 
-    if (!user) {
-      return res.status(404).json({
-        message: 'User not found',
-      })
-    }
+if (!user) {
+  return res.status(401).json({
+    message: 'Invalid email or password',
+  });
+}
 
-    // ✅ 3) Verify password using your User model method
-    const isValid = await user.validPassword(password)
-    if (!isValid) {
-      return res.status(401).json({
-        message: 'Invalid credentials',
-      })
-    }
+const isValid = await user.validPassword(password);
+
+if (!isValid) {
+  return res.status(401).json({
+    message: 'Invalid email or password',
+  });
+}
+
+// Remove sensitive fields before sending the response.
+const userData = user.toJSON() as any;
+
+delete userData.passwordHash;
+delete userData.isPasswordChanged;
+
 
     // ✅ 4) Prepare roles data for token
     const userRoles =
@@ -212,7 +238,10 @@ export const loginUser = async (req: Request, res: Response) => {
     return res.status(200).json({
       message: 'Login successful',
       token,
-      user,
+       user: {
+    ...userData,
+    roles: userRoles,
+  },
     })
   } catch (error: any) {
     console.error('loginUser error:', error)

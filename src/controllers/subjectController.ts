@@ -243,7 +243,44 @@ export const updateSubject = async (req: AuthRequest, res: Response) => {
 // GET ALL SUBJECTS
 export const getSubjects = async (req: AuthRequest, res: Response) => {
     try {
-        const subjects = await Subject.findAll({
+        const {
+            page = '1',
+            limit = '10',
+            subjectName,
+            subjectCode,
+        } = req.body;
+
+        const pageNumber = Number(page);
+        const pageSize = Number(limit);
+
+        if (
+            !Number.isInteger(pageNumber) ||
+            pageNumber < 1 ||
+            !Number.isInteger(pageSize) ||
+            pageSize < 1 ||
+            pageSize > 100
+        ) {
+            return res.status(400).json({
+                message: 'Page must be positive and limit must be between 1 and 100.',
+            });
+        }
+
+        const where: any = {};
+
+        if (typeof subjectName === 'string' && subjectName.trim()) {
+            where.subjectName = {
+                [Op.iLike]: `%${subjectName.trim()}%`,
+            };
+        }
+
+        if (typeof subjectCode === 'string' && subjectCode.trim()) {
+            where.subjectCode = {
+                [Op.iLike]: `%${subjectCode.trim()}%`,
+            };
+        }
+
+        const { count, rows } = await Subject.findAndCountAll({
+            where,
             include: [
                 {
                     model: Sender,
@@ -258,11 +295,23 @@ export const getSubjects = async (req: AuthRequest, res: Response) => {
                 },
             ],
             order: [['subjectName', 'ASC']],
+            limit: pageSize,
+            offset: (pageNumber - 1) * pageSize,
         });
+
+        const totalPages = Math.ceil(count / pageSize);
 
         return res.status(200).json({
             message: 'Subjects fetched successfully',
-            data: subjects,
+            pagination: {
+                totalRecords: count,
+                totalPages,
+                currentPage: pageNumber,
+                pageSize,
+                hasNextPage: pageNumber < totalPages,
+                hasPreviousPage: pageNumber > 1,
+            },
+            data: rows,
         });
     } catch (error: any) {
         console.error('getSubjects error:', error);

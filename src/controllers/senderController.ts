@@ -323,25 +323,82 @@ export const updateSender = async (req: AuthRequest, res: Response) => {
     }
 };
 
+
 export const getSenders = async (req: AuthRequest, res: Response) => {
     try {
-        const senders = await Sender.findAll({
+        const {
+            page = '1',
+            limit = '10',
+            senderName,
+            senderType,
+            organization,
+        } = req.body;
+
+        const pageNumber = Number(page);
+        const pageSize = Number(limit);
+
+        if (
+            !Number.isInteger(pageNumber) ||
+            pageNumber < 1 ||
+            !Number.isInteger(pageSize) ||
+            pageSize < 1 ||
+            pageSize > 100
+        ) {
+            return res.status(400).json({
+                message: 'Page must be positive and limit must be between 1 and 100.',
+            });
+        }
+
+        const where: any = {};
+
+        if (typeof senderName === 'string' && senderName.trim()) {
+            where.senderName = {
+                [Op.iLike]: `%${senderName.trim()}%`,
+            };
+        }
+
+        if (typeof senderType === 'string' && senderType.trim()) {
+            where.senderType = {
+                [Op.iLike]: `%${senderType.trim()}%`,
+            };
+        }
+
+        if (typeof organization === 'string' && organization.trim()) {
+            where.organization = {
+                [Op.iLike]: `%${organization.trim()}%`,
+            };
+        }
+
+        const { count, rows } = await Sender.findAndCountAll({
+            where,
             order: [['senderName', 'ASC']],
-        })
+            limit: pageSize,
+            offset: (pageNumber - 1) * pageSize,
+        });
+
+        const totalPages = Math.ceil(count / pageSize);
 
         return res.status(200).json({
             message: 'Senders fetched successfully',
-            data: senders,
-        })
+            pagination: {
+                totalRecords: count,
+                totalPages,
+                currentPage: pageNumber,
+                pageSize,
+                hasNextPage: pageNumber < totalPages,
+                hasPreviousPage: pageNumber > 1,
+            },
+            data: rows,
+        });
     } catch (error: any) {
-        console.error('getSenders error:', error)
+        console.error('getSenders error:', error);
 
         return res.status(500).json({
             message: 'Failed to fetch senders',
             error: error?.message || error,
-        })
+        });
     }
-}
+};
 
 export const getSenderById = async (req: AuthRequest, res: Response) => {
     try {
