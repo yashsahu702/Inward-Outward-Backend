@@ -60,11 +60,11 @@ export class Audit
           allowNull: false,
           field: 'performed_by',
         },
-        remarks: {
-          type: DataTypes.STRING,
+       remarks: {
+          type: DataTypes.TEXT, // <-- Change this to TEXT
           allowNull: true,
           field: 'remarks',
-        },
+      },
         ipAddress: {
           type: DataTypes.STRING(45),
           allowNull: false,
