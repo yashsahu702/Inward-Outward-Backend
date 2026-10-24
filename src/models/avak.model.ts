@@ -18,6 +18,11 @@ interface AvakAttributes {
     confidentiality: string;
     senderId: string;
     receivingMode: string;
+    receivingDate: Date | null;
+    isDocumentCollectedFromSender: boolean;
+    sendingDocumentToSectionOfficerDate: Date | null;
+    sendingDocumentMode: string | null; 
+    isInspection: boolean;
     branchId: string | null;
     slaDays: number;
     markedSectionId: string;
@@ -43,6 +48,11 @@ type AvakCreationAttributes = Optional<
     | 'markedAt'
     | 'createdAt'
     | 'updatedAt'
+    | 'receivingDate'
+    | 'isDocumentCollectedFromSender'
+    | 'sendingDocumentToSectionOfficerDate'
+    | 'sendingDocumentMode'
+    | 'isInspection'
 >;
 
 export class Avak
@@ -61,6 +71,11 @@ export class Avak
     public confidentiality!: string;
     public senderId!: string;
     public receivingMode!: string;
+    public receivingDate!: Date | null;
+    public isDocumentCollectedFromSender!: boolean;
+    public sendingDocumentToSectionOfficerDate!: Date | null;
+    public sendingDocumentMode!: string | null;
+    public isInspection!: boolean;
     public branchId!: string | null;
     public slaDays!: number;
     public markedSectionId!: string;
@@ -152,6 +167,37 @@ export class Avak
                     allowNull: false,
                     field: 'receiving_mode',
                 },
+                receivingDate: {
+               type: DataTypes.DATEONLY,
+              allowNull: true,
+              field: 'receiving_date',
+                },
+
+isDocumentCollectedFromSender: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false,
+    field: 'is_document_collected_from_sender',
+},
+
+sendingDocumentToSectionOfficerDate: {
+    type: DataTypes.DATEONLY,
+    allowNull: true,
+    field: 'sending_document_to_section_officer_date',
+},
+
+sendingDocumentMode: {
+    type: DataTypes.STRING(50),
+    allowNull: true,
+    field: 'sending_document_mode',
+},
+
+isInspection: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false,
+    field: 'is_inspection',
+},
 
                 branchId: {
                     type: DataTypes.UUID,
@@ -178,7 +224,7 @@ export class Avak
                 status: {
                     type: DataTypes.STRING(30),
                     allowNull: false,
-                    defaultValue: 'RECEIVED',
+                    defaultValue: 'RECEIVED & FORWARDED',
                     field: 'status',
                 },
 
@@ -241,3 +287,5 @@ export class Avak
 //     START WITH 1256
 //     INCREMENT BY 1
 //     NO CYCLE;
+
+//sendingDocumentMode, keep the database type as a string, with values such as BY_HAND, POST, COURIER, EMAIL, or OTHER.

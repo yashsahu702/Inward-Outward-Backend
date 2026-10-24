@@ -28,6 +28,7 @@ import  { Branch }  from './branch.model';
 import { Sender } from './sender.model';
 import { Avak } from './avak.model';
 import { RemarkRecord } from './RemarkStatus'
+import { Javak } from './javak.model'
 // Create Sequelize instance
 export const sequelize = new Sequelize(process.env.PG_URI as string, {
   dialect: 'postgres',
@@ -50,7 +51,7 @@ Branch.initialize(sequelize);
 Sender.initialize(sequelize);
 Avak.initialize(sequelize);
 RemarkRecord.initialize(sequelize);
-//RemarkRecord.initialize(sequelize)
+Javak.initialize(sequelize)
 NotificationOrdms.initialize(sequelize)
 // 2) Define associations
 
@@ -393,6 +394,18 @@ RemarkRecord.belongsTo(User, {
     as: 'user',
 });
 
+Avak.hasOne(Javak, {
+    foreignKey: 'avakId',
+    as: 'javak',
+    onDelete: 'RESTRICT',
+    onUpdate: 'CASCADE',
+});
+
+Javak.belongsTo(Avak, {
+    foreignKey: 'avakId',
+    as: 'avak',
+});
+
 
 console.log('All models initialized & associations set.')
 
@@ -411,5 +424,6 @@ export {
     Subject,
     Branch,
     Sender,
-    Avak
+    Avak,
+    Javak
 };

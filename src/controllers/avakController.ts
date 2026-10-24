@@ -6,7 +6,7 @@ import { Sender } from '../models/sender.model';
 import { Branch } from '../models/branch.model';
 import { Section } from '../models/section.model';
 import { AuthRequest } from '../types/auth.types';
-import { Audit, sequelize } from '../models';
+import { Audit, Javak, sequelize } from '../models';
 import { EntityType } from '../models/enums';
 import { Op, WhereOptions } from 'sequelize';
 
@@ -33,6 +33,12 @@ export const createAvak = async (
             slaDays,
             markedSectionId,
             status,
+             // New fields
+    receivingDate,
+    isDocumentCollectedFromSender,
+    sendingDocumentToSectionOfficerDate,
+    sendingDocumentMode,
+    isInspection,
         } = req.body;
 
         const userId = req.user?.id;
@@ -240,6 +246,19 @@ export const createAvak = async (
                 confidentiality: confidentiality ?? 'NORMAL',
                 senderId: resolvedSenderId,
                 receivingMode,
+                 receivingDate: receivingDate || null,
+
+                    isDocumentCollectedFromSender:
+                    isDocumentCollectedFromSender ?? false,
+
+                   sendingDocumentToSectionOfficerDate:
+                      sendingDocumentToSectionOfficerDate || null,
+
+                    sendingDocumentMode:
+                     sendingDocumentMode?.trim() || null,
+
+                    isInspection: isInspection ?? false,
+
                 branchId: resolvedBranchId,
                 slaDays: Number(resolvedSlaDays),
                 markedSectionId,
@@ -252,7 +271,22 @@ export const createAvak = async (
             { transaction }
         );
 
-        // 12. Create audit record
+        //12. Create automatically a new Javak for this avak
+
+        const javak = await Javak.create(
+  {
+    avakId: avak.id,
+    createdBy: userId,
+    isDocumentReceived: false,
+    receivedDocumentDate: null,
+    actionRemarks: null,
+    status: 'Draft',
+    dispatchMode: null,
+  },
+  { transaction }
+);
+
+        // 13. Create audit record
         await Audit.create(
             {
                 entity: EntityType.AVAK,
@@ -261,6 +295,7 @@ export const createAvak = async (
                 performedBy: userId,
                 remarks:
                     `AVAK "${avak.avakNumber}" created successfully. ` +
+                    `JAVAK "${javak.javakNumber}" created successfully. ` +
                     `Sender ID: ${resolvedSenderId}. ` +
                     `Branch ID: ${resolvedBranchId ?? 'None'}. ` +
                     `New sender created: ${senderCreated}.`,
@@ -271,7 +306,7 @@ export const createAvak = async (
             { transaction }
         );
 
-        // 13. Commit transaction
+        // 14. Commit transaction
         await transaction.commit();
         transaction = undefined;
 
@@ -279,6 +314,7 @@ export const createAvak = async (
             message: `AVAK created successfully. AVAK Number: ${avak.avakNumber}`,
             data: {
                 ...avak.toJSON(),
+                javak: javak.toJSON(),
                 senderCreated,
             },
         });
@@ -336,6 +372,12 @@ export const updateAvak = async (req: AuthRequest, res: Response) => {
             slaDays,
             markedSectionId,
             status,
+             // New fields
+    receivingDate,
+    isDocumentCollectedFromSender,
+    sendingDocumentToSectionOfficerDate,
+    sendingDocumentMode,
+    isInspection,
         } = req.body;
 
         const userId = req.user?.id;
@@ -572,6 +614,29 @@ export const updateAvak = async (req: AuthRequest, res: Response) => {
                 ...(confidentiality !== undefined && { confidentiality }),
                 senderId: resolvedSenderId,
                 ...(receivingMode !== undefined && { receivingMode }),
+
+                // New fields: update only when supplied
+                ...(receivingDate !== undefined && {
+                 receivingDate: receivingDate || null,
+                }),
+
+                ...(isDocumentCollectedFromSender !== undefined && {
+                isDocumentCollectedFromSender,
+                }),
+
+                ...(sendingDocumentToSectionOfficerDate !== undefined && {
+               sendingDocumentToSectionOfficerDate:
+                  sendingDocumentToSectionOfficerDate || null,
+                }),
+
+                ...(sendingDocumentMode !== undefined && {
+                  sendingDocumentMode: sendingDocumentMode?.trim() || null,
+                }),
+
+                ...(isInspection !== undefined && {
+                  isInspection,
+                }),
+
                 branchId: resolvedBranchId,
                 ...(slaDays !== undefined && {
                     slaDays: Number(slaDays),
