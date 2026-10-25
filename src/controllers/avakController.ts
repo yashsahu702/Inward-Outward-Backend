@@ -6,7 +6,7 @@ import { Sender } from '../models/sender.model';
 import { Branch } from '../models/branch.model';
 import { Section } from '../models/section.model';
 import { AuthRequest } from '../types/auth.types';
-import { Audit, Javak, sequelize } from '../models';
+import { Audit, BranchSection, Javak, sequelize } from '../models';
 import { EntityType } from '../models/enums';
 import { Op, WhereOptions } from 'sequelize';
 import { Document } from '../models/document.model';
@@ -33,6 +33,7 @@ export const createAvak = async (
             sender,
             receivingMode,
             branchId,
+            branchSectionId,
             slaDays,
             markedSectionId,
             status,
@@ -88,6 +89,20 @@ export const createAvak = async (
                     'branchId can only be provided when an existing senderId is selected',
             });
         }
+        // A branch is required when a branch section is selected.
+if (branchSectionId && !branchId) {
+    return res.status(400).json({
+        message: 'branchId is required when branchSectionId is provided',
+    });
+}
+
+// A branch section can only be selected for an existing sender.
+if (branchSectionId && !senderId) {
+    return res.status(400).json({
+        message:
+            'branchSectionId can only be provided when an existing senderId is selected',
+    });
+}
 
         // 5. Validate new sender details
         if (!senderId) {
@@ -192,6 +207,21 @@ export const createAvak = async (
                     });
                 }
             }
+            if (branchSectionId) {
+    const branchSection = await BranchSection.findOne({
+        where: {
+            id: branchSectionId,
+            branchId,
+        },
+    });
+
+    if (!branchSection) {
+        return res.status(400).json({
+            message:
+                'Selected branch section does not belong to the selected branch',
+        });
+    }
+}
         }
 
         // 9. Begin transaction
@@ -264,6 +294,7 @@ export const createAvak = async (
                     isInspection: isInspection ?? false,
 
                 branchId: resolvedBranchId,
+                branchSectionId: branchSectionId ?? null,
                 slaDays: Number(resolvedSlaDays),
                 markedSectionId,
                 status: status ?? 'RECEIVED',
@@ -358,7 +389,6 @@ export const updateAvak = async (req: AuthRequest, res: Response) => {
     let transaction: Transaction | undefined;
 
     try {
-
         const {
             id,
             registrationDate,
@@ -374,15 +404,15 @@ export const updateAvak = async (req: AuthRequest, res: Response) => {
             sender,
             receivingMode,
             branchId,
+            branchSectionId,
             slaDays,
             markedSectionId,
             status,
-             // New fields
-    receivingDate,
-    isDocumentCollectedFromSender,
-    sendingDocumentToSectionOfficerDate,
-    sendingDocumentMode,
-    isInspection,
+            receivingDate,
+            isDocumentCollectedFromSender,
+            sendingDocumentToSectionOfficerDate,
+            sendingDocumentMode,
+            isInspection,
         } = req.body;
 
         const userId = req.user?.id;
@@ -390,6 +420,12 @@ export const updateAvak = async (req: AuthRequest, res: Response) => {
         if (!userId) {
             return res.status(401).json({
                 message: 'Unauthorized. User information not found.',
+            });
+        }
+
+        if (!id) {
+            return res.status(400).json({
+                message: 'AVAK ID is required.',
             });
         }
 
@@ -416,12 +452,14 @@ export const updateAvak = async (req: AuthRequest, res: Response) => {
             });
         }
 
-        // Validate and resolve sender.
+        // Resolve sender and branch.
         let resolvedSenderId = avak.senderId;
         let resolvedBranchId =
-            branchId !== undefined ? branchId : avak.branchId;
+            branchId !== undefined ? branchId || null : avak.branchId;
+
         let senderCreated = false;
 
+        // Validate an existing sender.
         if (senderId) {
             const existingSender = await Sender.findByPk(senderId, {
                 transaction,
@@ -447,12 +485,15 @@ export const updateAvak = async (req: AuthRequest, res: Response) => {
 
             resolvedSenderId = existingSender.id;
 
-            // If the sender changes and no branch is supplied,
-            // clear the old branch to avoid an invalid relationship.
-            if (resolvedSenderId !== avak.senderId && branchId === undefined) {
+            // If sender changes without a branch, clear the previous branch.
+            if (
+                resolvedSenderId !== avak.senderId &&
+                branchId === undefined
+            ) {
                 resolvedBranchId = null;
             }
         } else if (sender) {
+            // Validate required fields for a new sender.
             const requiredSenderFields = [
                 'senderName',
                 'senderType',
@@ -535,7 +576,20 @@ export const updateAvak = async (req: AuthRequest, res: Response) => {
             senderCreated = true;
         }
 
-        // If a branch is supplied, it must belong to the resolved sender.
+        // A branch or branch section cannot be selected without a sender.
+        if (
+            (branchId !== undefined && branchId && !resolvedSenderId) ||
+            (branchSectionId && !resolvedSenderId)
+        ) {
+            await transaction.rollback();
+            transaction = undefined;
+
+            return res.status(400).json({
+                message: 'A sender is required when selecting a branch or branch section.',
+            });
+        }
+
+        // Validate that the resolved branch belongs to the resolved sender.
         if (resolvedBranchId) {
             const branch = await Branch.findOne({
                 where: {
@@ -550,18 +604,70 @@ export const updateAvak = async (req: AuthRequest, res: Response) => {
                 transaction = undefined;
 
                 return res.status(400).json({
-                    message: 'Selected branch does not belong to the selected sender.',
+                    message:
+                        'Selected branch does not belong to the selected sender.',
                 });
             }
         }
 
-        // Validate section if supplied.
+        // Resolve branch section:
+        // 1. If supplied, use the requested value.
+        // 2. If omitted and branch is unchanged, preserve the existing value.
+        // 3. If branch changes, clear the old section.
+        const resolvedBranchSectionId =
+            branchSectionId !== undefined
+                ? branchSectionId || null
+                : resolvedBranchId === avak.branchId
+                  ? avak.branchSectionId
+                  : null;
+
+        // If a section ID is supplied, require branchId in this request.
+        if (branchSectionId && !branchId) {
+            await transaction.rollback();
+            transaction = undefined;
+
+            return res.status(400).json({
+                message: 'branchId is required when branchSectionId is provided.',
+            });
+        }
+
+        // Validate that the selected branch section belongs to the resolved branch.
+        if (resolvedBranchSectionId) {
+            if (!resolvedBranchId) {
+                await transaction.rollback();
+                transaction = undefined;
+
+                return res.status(400).json({
+                    message: 'A branch is required when a branch section is selected.',
+                });
+            }
+
+            const branchSection = await BranchSection.findOne({
+                where: {
+                    id: resolvedBranchSectionId,
+                    branchId: resolvedBranchId,
+                },
+                transaction,
+            });
+
+            if (!branchSection) {
+                await transaction.rollback();
+                transaction = undefined;
+
+                return res.status(400).json({
+                    message:
+                        'Selected branch section does not belong to the selected branch.',
+                });
+            }
+        }
+
+        // Resolve and validate marked section separately.
         const resolvedSectionId =
             markedSectionId !== undefined
                 ? markedSectionId
                 : avak.markedSectionId;
 
-        if (markedSectionId !== undefined) {
+        if (markedSectionId !== undefined && markedSectionId !== null) {
             const section = await Section.findByPk(markedSectionId, {
                 transaction,
             });
@@ -576,7 +682,7 @@ export const updateAvak = async (req: AuthRequest, res: Response) => {
             }
         }
 
-        // Validate SLA days if supplied.
+        // Validate SLA days.
         if (slaDays !== undefined) {
             const parsedSlaDays = Number(slaDays);
 
@@ -599,71 +705,88 @@ export const updateAvak = async (req: AuthRequest, res: Response) => {
                 ...(registrationDate !== undefined && {
                     registrationDate,
                 }),
-                 ...(caseNumber !== undefined && {
+
+                ...(caseNumber !== undefined && {
                     caseNumber: caseNumber?.trim() || null,
                 }),
+
                 ...(letterReferenceNumber !== undefined && {
                     letterReferenceNumber:
                         letterReferenceNumber?.trim() || null,
                 }),
+
                 ...(letterDate !== undefined && {
                     letterDate: letterDate || null,
                 }),
+
                 ...(subject !== undefined && {
                     subject: subject.trim(),
                 }),
+
                 ...(briefDescription !== undefined && {
                     briefDescription: briefDescription?.trim() || null,
                 }),
+
                 ...(correspondenceType !== undefined && {
                     correspondenceType,
                 }),
-                ...(priority !== undefined && { priority }),
-                ...(confidentiality !== undefined && { confidentiality }),
-                senderId: resolvedSenderId,
-                ...(receivingMode !== undefined && { receivingMode }),
 
-                // New fields: update only when supplied
+                ...(priority !== undefined && { priority }),
+
+                ...(confidentiality !== undefined && { confidentiality }),
+
+                senderId: resolvedSenderId,
+
+                ...(receivingMode !== undefined && {
+                    receivingMode,
+                }),
+
                 ...(receivingDate !== undefined && {
-                 receivingDate: receivingDate || null,
+                    receivingDate: receivingDate || null,
                 }),
 
                 ...(isDocumentCollectedFromSender !== undefined && {
-                isDocumentCollectedFromSender,
+                    isDocumentCollectedFromSender,
                 }),
 
                 ...(sendingDocumentToSectionOfficerDate !== undefined && {
-               sendingDocumentToSectionOfficerDate:
-                  sendingDocumentToSectionOfficerDate || null,
+                    sendingDocumentToSectionOfficerDate:
+                        sendingDocumentToSectionOfficerDate || null,
                 }),
 
                 ...(sendingDocumentMode !== undefined && {
-                  sendingDocumentMode: sendingDocumentMode?.trim() || null,
+                    sendingDocumentMode:
+                        sendingDocumentMode?.trim() || null,
                 }),
 
                 ...(isInspection !== undefined && {
-                  isInspection,
+                    isInspection,
                 }),
 
                 branchId: resolvedBranchId,
+                branchSectionId: resolvedBranchSectionId,
+
                 ...(slaDays !== undefined && {
                     slaDays: Number(slaDays),
                 }),
+
                 markedSectionId: resolvedSectionId,
+
                 ...(status !== undefined && { status }),
+
                 updatedBy: userId,
             },
             { transaction }
         );
 
-        // Create audit record in the same transaction.
+        // Create audit record within the same transaction.
         await Audit.create(
             {
                 entity: EntityType.AVAK,
                 entityId: avak.id,
                 action: 'Update',
                 performedBy: userId,
-                remarks: `AVAK "${avak.avakNumber}" updated successfully. Sender ID: ${resolvedSenderId}. Branch ID: ${resolvedBranchId ?? 'None'}. New sender created: ${senderCreated}.`,
+                remarks: `AVAK "${avak.avakNumber}" updated successfully. Sender ID: ${resolvedSenderId}. Branch ID: ${resolvedBranchId ?? 'None'}. Branch Section ID: ${resolvedBranchSectionId ?? 'None'}. New sender created: ${senderCreated}.`,
                 ipAddress:
                     req.ip || req.socket.remoteAddress || 'unknown',
                 timestamp: new Date(),
@@ -711,8 +834,6 @@ export const updateAvak = async (req: AuthRequest, res: Response) => {
         });
     }
 };
-
-
 
 
 export const getAllAvak = async (req: AuthRequest, res: Response) => {
@@ -866,6 +987,7 @@ export const getAllAvak = async (req: AuthRequest, res: Response) => {
                 const dayAfterToDate = new Date(
                     `${toDate}T00:00:00.000Z`
                 );
+
                 dayAfterToDate.setUTCDate(
                     dayAfterToDate.getUTCDate() + 1
                 );
@@ -906,13 +1028,21 @@ export const getAllAvak = async (req: AuthRequest, res: Response) => {
                 {
                     model: Branch,
                     as: 'branch',
-                    attributes: ['id', 'branchName', 'branchCode'],
+                    attributes: [
+                        'id',
+                        'branchName',
+                        'branchCode',
+                    ],
                     required: false,
                 },
                 {
                     model: Section,
                     as: 'markedSection',
-                    attributes: ['id', 'sectionName', 'sectionCode'],
+                    attributes: [
+                        'id',
+                        'sectionName',
+                        'sectionCode',
+                    ],
                 },
             ],
             limit: pageSize,
@@ -920,6 +1050,59 @@ export const getAllAvak = async (req: AuthRequest, res: Response) => {
             order: [['createdAt', 'DESC']],
             distinct: true,
         });
+
+        // Fetch only the selected branch section for each AVAK.
+        // No Avak-BranchSection association is required.
+        const dataWithSenderDetails = await Promise.all(
+            rows.map(async (avak) => {
+                const avakData = avak.toJSON() as any;
+
+                const {
+                    branch: selectedBranch,
+                    sender: selectedSender,
+                    ...remainingAvakData
+                } = avakData;
+
+                let selectedBranchSection = null;
+
+                if (avak.branchId && avak.branchSectionId) {
+                    selectedBranchSection =
+                        await BranchSection.findOne({
+                            where: {
+                                id: avak.branchSectionId,
+                                branchId: avak.branchId,
+                            },
+                            attributes: [
+                                'id',
+                                'branchSectionName',
+                                'branchSectionCode',
+                                'branchId',
+                            ],
+                        });
+                }
+
+                // Place branch and its selected section inside sender.
+                const senderWithBranch = selectedSender
+                    ? {
+                          ...selectedSender,
+                          branch: selectedBranch
+                              ? {
+                                    ...selectedBranch,
+                                    branchSection:
+                                        selectedBranchSection
+                                            ? selectedBranchSection.toJSON()
+                                            : null,
+                                }
+                              : null,
+                      }
+                    : null;
+
+                return {
+                    ...remainingAvakData,
+                    sender: senderWithBranch,
+                };
+            })
+        );
 
         // Fetch documents belonging to the AVAK records on this page
         const avakIds = rows.map((avak) => avak.id);
@@ -952,14 +1135,10 @@ export const getAllAvak = async (req: AuthRequest, res: Response) => {
         }
 
         // Attach documents to each AVAK record
-        const data = rows.map((avak) => {
-            const avakData = avak.toJSON();
-
-            return {
-                ...avakData,
-                documents: documentsByAvakId.get(avak.id) ?? [],
-            };
-        });
+        const data = dataWithSenderDetails.map((avakData) => ({
+            ...avakData,
+            documents: documentsByAvakId.get(avakData.id) ?? [],
+        }));
 
         const totalPages = Math.ceil(count / pageSize);
 
@@ -1044,10 +1223,54 @@ export const getAvakById = async (req: AuthRequest, res: Response) => {
             order: [['createdAt', 'ASC']],
         });
 
+        // Convert AVAK instance to a plain object
+        const avakData = avak.toJSON() as any;
+
+        // Extract branch and sender from the AVAK response
+        const {
+            branch: selectedBranch,
+            sender: selectedSender,
+            ...remainingAvakData
+        } = avakData;
+
+        let selectedBranchSection = null;
+
+        // Fetch branch section only when both IDs are available
+        if (avak.branchId && avak.branchSectionId) {
+            selectedBranchSection = await BranchSection.findOne({
+                where: {
+                    id: avak.branchSectionId,
+                    branchId: avak.branchId,
+                },
+                attributes: [
+                    'id',
+                    'branchSectionName',
+                    'branchSectionCode',
+                    'branchId',
+                ],
+            });
+        }
+
+        // Nest branch and branch section inside sender
+        const senderWithBranch = selectedSender
+            ? {
+                  ...selectedSender,
+                  ...(selectedBranch && {
+                      branch: {
+                          ...selectedBranch,
+                          ...(selectedBranchSection && {
+                              branchSection: selectedBranchSection.toJSON(),
+                          }),
+                      },
+                  }),
+              }
+            : null;
+
         return res.status(200).json({
             message: `AVAK fetched successfully. AVAK Number: ${avak.avakNumber}`,
             data: {
-                ...avak.toJSON(),
+                ...remainingAvakData,
+                sender: senderWithBranch,
                 documents,
             },
         });

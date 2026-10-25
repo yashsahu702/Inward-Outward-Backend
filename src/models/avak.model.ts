@@ -25,6 +25,7 @@ interface AvakAttributes {
     sendingDocumentMode: string | null; 
     isInspection: boolean;
     branchId: string | null;
+    branchSectionId: string | null;
     slaDays: number;
     markedSectionId: string;
     status: string;
@@ -45,6 +46,7 @@ type AvakCreationAttributes = Optional<
     | 'letterDate'
     | 'briefDescription'
     | 'branchId'
+    | 'branchSectionId'
     | 'updatedBy'
     | 'markedBy'
     | 'markedAt'
@@ -80,6 +82,7 @@ export class Avak
     public sendingDocumentMode!: string | null;
     public isInspection!: boolean;
     public branchId!: string | null;
+    public branchSectionId!: string | null;
     public slaDays!: number;
     public markedSectionId!: string;
     public status!: string;
@@ -212,6 +215,11 @@ isInspection: {
                     allowNull: true,
                     field: 'branch_id',
                 },
+                branchSectionId: {
+                        type: DataTypes.UUID,
+                        allowNull: true,
+                         field: 'branch_section_id',
+                    },
 
                 slaDays: {
                     type: DataTypes.INTEGER,

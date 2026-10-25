@@ -3,10 +3,13 @@ import { Op, Transaction } from 'sequelize';
 import { Branch } from '../models/branch.model';
 import { Sender } from '../models/sender.model';
 import { AuthRequest } from '../types/auth.types';
-import { Audit, sequelize } from '../models';
+import { Audit, BranchSection, sequelize } from '../models';
 import { EntityType } from '../models/enums';
 
-export const createBranch = async (req: AuthRequest, res: Response) => {
+export const createBranch = async (
+    req: AuthRequest,
+    res: Response
+) => {
     let transaction: Transaction | undefined;
 
     try {
@@ -15,6 +18,7 @@ export const createBranch = async (req: AuthRequest, res: Response) => {
             branchCode,
             senderId,
             activeFlag,
+            branchSections = [],
         } = req.body;
 
         const userId = req.user?.id;
@@ -25,9 +29,33 @@ export const createBranch = async (req: AuthRequest, res: Response) => {
             });
         }
 
-        if (!branchName || !branchCode || !senderId) {
+        if (
+            !branchName?.trim() ||
+            !branchCode?.trim() ||
+            !senderId
+        ) {
             return res.status(400).json({
-                message: 'Branch name, branch code and sender ID are required',
+                message:
+                    'Branch name, branch code and sender ID are required',
+            });
+        }
+
+        if (
+            !Array.isArray(branchSections) ||
+            branchSections.some(
+                (section: any) =>
+                    !section ||
+                    typeof section.branchSectionName !== 'string' ||
+                    !section.branchSectionName.trim() ||
+                    (
+                        section.branchSectionCode != null &&
+                        typeof section.branchSectionCode !== 'string'
+                    )
+            )
+        ) {
+            return res.status(400).json({
+                message:
+                    'branchSections must be an array of sections with a valid branchSectionName and optional branchSectionCode.',
             });
         }
 
@@ -41,7 +69,7 @@ export const createBranch = async (req: AuthRequest, res: Response) => {
 
         const existingBranch = await Branch.findOne({
             where: {
-                branchCode,
+                branchCode: branchCode.trim(),
                 senderId,
             },
         });
@@ -56,8 +84,8 @@ export const createBranch = async (req: AuthRequest, res: Response) => {
 
         const branch = await Branch.create(
             {
-                branchName,
-                branchCode,
+                branchName: branchName.trim(),
+                branchCode: branchCode.trim(),
                 senderId,
                 activeFlag: activeFlag ?? true,
                 createdBy: userId,
@@ -65,6 +93,19 @@ export const createBranch = async (req: AuthRequest, res: Response) => {
             },
             { transaction }
         );
+
+        // Create multiple branch sections, if provided
+        if (branchSections.length > 0) {
+            await BranchSection.bulkCreate(
+                branchSections.map((section: any) => ({
+                    branchSectionName: section.branchSectionName.trim(),
+                    branchSectionCode:
+                        section.branchSectionCode?.trim() || null,
+                    branchId: branch.id,
+                })),
+                { transaction }
+            );
+        }
 
         await Audit.create(
             {
@@ -81,17 +122,30 @@ export const createBranch = async (req: AuthRequest, res: Response) => {
         );
 
         await transaction.commit();
+        transaction = undefined;
+
+        const createdBranch = await Branch.findByPk(branch.id, {
+            include: [
+                {
+                    model: BranchSection,
+                    as: 'branchSections',
+                },
+            ],
+        });
 
         return res.status(201).json({
             message: 'Branch created successfully',
-            data: branch,
+            data: createdBranch,
         });
     } catch (error: any) {
         if (transaction) {
             try {
                 await transaction.rollback();
             } catch (rollbackError) {
-                console.error('Transaction rollback error:', rollbackError);
+                console.error(
+                    'Transaction rollback error:',
+                    rollbackError
+                );
             }
         }
 
@@ -104,7 +158,10 @@ export const createBranch = async (req: AuthRequest, res: Response) => {
     }
 };
 
-export const updateBranch = async (req: AuthRequest, res: Response) => {
+export const updateBranch = async (
+    req: AuthRequest,
+    res: Response
+) => {
     let transaction: Transaction | undefined;
 
     try {
@@ -114,6 +171,7 @@ export const updateBranch = async (req: AuthRequest, res: Response) => {
             branchCode,
             senderId,
             activeFlag,
+            branchSections,
         } = req.body;
 
         const userId = req.user?.id;
@@ -136,6 +194,70 @@ export const updateBranch = async (req: AuthRequest, res: Response) => {
             return res.status(404).json({
                 message: 'Branch not found',
             });
+        }
+
+        // Validate sections only when provided
+        if (branchSections !== undefined) {
+            if (
+                !Array.isArray(branchSections) ||
+                branchSections.some((section: any) => {
+                    if (!section || typeof section !== 'object') {
+                        return true;
+                    }
+
+                    if (
+                        section.id !== undefined &&
+                        typeof section.id !== 'string'
+                    ) {
+                        return true;
+                    }
+
+                    if (
+                        section.branchSectionName !== undefined &&
+                        (
+                            typeof section.branchSectionName !== 'string' ||
+                            !section.branchSectionName.trim()
+                        )
+                    ) {
+                        return true;
+                    }
+
+                    if (
+                        section.branchSectionCode !== undefined &&
+                        section.branchSectionCode !== null &&
+                        typeof section.branchSectionCode !== 'string'
+                    ) {
+                        return true;
+                    }
+
+                    // A new section must have a name
+                    if (
+                        !section.id &&
+                        (
+                            typeof section.branchSectionName !== 'string' ||
+                            !section.branchSectionName.trim()
+                        )
+                    ) {
+                        return true;
+                    }
+
+                    // An existing section must have at least one field to update
+                    if (
+                        section.id &&
+                        section.branchSectionName === undefined &&
+                        section.branchSectionCode === undefined
+                    ) {
+                        return true;
+                    }
+
+                    return false;
+                })
+            ) {
+                return res.status(400).json({
+                    message:
+                        'Invalid branchSections. Existing sections require an ID and at least one field to update. New sections require a name.',
+                });
+            }
         }
 
         const newSenderId = senderId ?? branch.senderId;
@@ -165,7 +287,8 @@ export const updateBranch = async (req: AuthRequest, res: Response) => {
 
             if (existingBranch) {
                 return res.status(400).json({
-                    message: 'Branch code already exists for this sender',
+                    message:
+                        'Branch code already exists for this sender',
                 });
             }
         }
@@ -186,13 +309,69 @@ export const updateBranch = async (req: AuthRequest, res: Response) => {
             { transaction }
         );
 
+        // Update existing sections or insert new sections
+        if (branchSections !== undefined) {
+            for (const section of branchSections) {
+                if (section.id) {
+                    const existingSection =
+                        await BranchSection.findOne({
+                            where: {
+                                id: section.id,
+                                branchId: branch.id,
+                            },
+                            transaction,
+                        });
+
+                    if (!existingSection) {
+                        await transaction.rollback();
+                        transaction = undefined;
+
+                        return res.status(400).json({
+                            message:
+                                `Branch section ${section.id} does not belong to this branch or does not exist.`,
+                        });
+                    }
+
+                    const sectionUpdates: Record<string, any> = {};
+
+                    if (section.branchSectionName !== undefined) {
+                        sectionUpdates.branchSectionName =
+                            section.branchSectionName.trim();
+                    }
+
+                    if (section.branchSectionCode !== undefined) {
+                        sectionUpdates.branchSectionCode =
+                            section.branchSectionCode === null
+                                ? null
+                                : section.branchSectionCode.trim() || null;
+                    }
+
+                    await existingSection.update(sectionUpdates, {
+                        transaction,
+                    });
+                } else {
+                    await BranchSection.create(
+                        {
+                            branchId: branch.id,
+                            branchSectionName:
+                                section.branchSectionName.trim(),
+                            branchSectionCode:
+                                section.branchSectionCode?.trim() || null,
+                        },
+                        { transaction }
+                    );
+                }
+            }
+        }
+
         await Audit.create(
             {
                 entity: EntityType.BRANCH,
                 entityId: branch.id,
                 action: 'Update',
                 performedBy: userId,
-                remarks: `Branch "${branch.branchName}" updated. Previous values: ${JSON.stringify(previousBranch)}`,
+                remarks:
+                    `Branch "${branch.branchName}" updated. Previous values: ${JSON.stringify(previousBranch)}`,
                 ipAddress:
                     req.ip || req.socket.remoteAddress || 'unknown',
                 timestamp: new Date(),
@@ -201,17 +380,30 @@ export const updateBranch = async (req: AuthRequest, res: Response) => {
         );
 
         await transaction.commit();
+        transaction = undefined;
+
+        const updatedBranch = await Branch.findByPk(branch.id, {
+            include: [
+                {
+                    model: BranchSection,
+                    as: 'branchSections',
+                },
+            ],
+        });
 
         return res.status(200).json({
             message: 'Branch updated successfully',
-            data: branch,
+            data: updatedBranch,
         });
     } catch (error: any) {
         if (transaction) {
             try {
                 await transaction.rollback();
             } catch (rollbackError) {
-                console.error('Transaction rollback error:', rollbackError);
+                console.error(
+                    'Transaction rollback error:',
+                    rollbackError
+                );
             }
         }
 
@@ -224,48 +416,17 @@ export const updateBranch = async (req: AuthRequest, res: Response) => {
     }
 };
 
+
+
+
 export const getBranches = async (req: AuthRequest, res: Response) => {
-    try {
-        const branches = await Branch.findAll({
-            include: [
-                {
-                    model: Sender,
-                    as: 'sender',
-                    attributes: [
-                        'id',
-                        'senderName',
-                        'senderType',
-                        'organization',
-                    ],
-                },
-            ],
-            order: [['branchName', 'ASC']],
-        });
-
-        return res.status(200).json({
-            message: 'Branches fetched successfully',
-            data: branches,
-        });
-    } catch (error: any) {
-        console.error('getBranches error:', error);
-
-        return res.status(500).json({
-            message: 'Failed to fetch branches',
-            error: error?.message || error,
-        });
-    }
-};
-
-
-export const getBranches1 = async (req: AuthRequest, res: Response) => {
     try {
         const {
             page = '1',
             limit = '10',
             branchName,
             branchCode,
-            organization
-          
+            organization,
         } = req.body;
 
         const pageNumber = Number(page);
@@ -279,7 +440,8 @@ export const getBranches1 = async (req: AuthRequest, res: Response) => {
             pageSize > 100
         ) {
             return res.status(400).json({
-                message: 'Page must be positive and limit must be between 1 and 100.',
+                message:
+                    'Page must be positive and limit must be between 1 and 100.',
             });
         }
 
@@ -304,7 +466,6 @@ export const getBranches1 = async (req: AuthRequest, res: Response) => {
             };
         }
 
-
         const { count, rows } = await Branch.findAndCountAll({
             where: branchWhere,
             include: [
@@ -320,6 +481,11 @@ export const getBranches1 = async (req: AuthRequest, res: Response) => {
                     ],
                     where: senderWhere,
                     required: Object.keys(senderWhere).length > 0,
+                },
+                {
+                    model: BranchSection,
+                    as: 'branchSections',
+                    required: false,
                 },
             ],
             order: [['branchName', 'ASC']],
@@ -352,7 +518,12 @@ export const getBranches1 = async (req: AuthRequest, res: Response) => {
     }
 };
 
-export const getBranchById = async (req: AuthRequest, res: Response) => {
+
+
+export const getBranchById = async (
+    req: AuthRequest,
+    res: Response
+) => {
     try {
         const { id } = req.params;
 
@@ -367,6 +538,11 @@ export const getBranchById = async (req: AuthRequest, res: Response) => {
                         'senderType',
                         'organization',
                     ],
+                },
+                {
+                    model: BranchSection,
+                    as: 'branchSections',
+                    required: false,
                 },
             ],
         });
@@ -391,6 +567,8 @@ export const getBranchById = async (req: AuthRequest, res: Response) => {
     }
 };
 
+
+
 export const getBranchesBySenderId = async (
     req: AuthRequest,
     res: Response
@@ -410,6 +588,13 @@ export const getBranchesBySenderId = async (
             where: {
                 senderId,
             },
+            include: [
+                {
+                    model: BranchSection,
+                    as: 'branchSections',
+                    required: false,
+                },
+            ],
             order: [['branchName', 'ASC']],
         });
 
