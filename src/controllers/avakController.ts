@@ -9,6 +9,8 @@ import { AuthRequest } from '../types/auth.types';
 import { Audit, Javak, sequelize } from '../models';
 import { EntityType } from '../models/enums';
 import { Op, WhereOptions } from 'sequelize';
+import { Document } from '../models/document.model';
+import { DocumentType } from '../models/enums';
 
 export const createAvak = async (
     req: AuthRequest,
@@ -19,6 +21,7 @@ export const createAvak = async (
     try {
         const {
             registrationDate,
+            caseNumber,
             letterReferenceNumber,
             letterDate,
             subject,
@@ -235,6 +238,7 @@ export const createAvak = async (
         const avak = await Avak.create(
             {
                 registrationDate: registrationDate ?? new Date(),
+                caseNumber,
                 letterReferenceNumber:
                     letterReferenceNumber?.trim() || null,
                 letterDate: letterDate || null,
@@ -358,6 +362,7 @@ export const updateAvak = async (req: AuthRequest, res: Response) => {
         const {
             id,
             registrationDate,
+            caseNumber,
             letterReferenceNumber,
             letterDate,
             subject,
@@ -594,6 +599,9 @@ export const updateAvak = async (req: AuthRequest, res: Response) => {
                 ...(registrationDate !== undefined && {
                     registrationDate,
                 }),
+                 ...(caseNumber !== undefined && {
+                    caseNumber: caseNumber?.trim() || null,
+                }),
                 ...(letterReferenceNumber !== undefined && {
                     letterReferenceNumber:
                         letterReferenceNumber?.trim() || null,
@@ -723,7 +731,7 @@ export const getAllAvak = async (req: AuthRequest, res: Response) => {
             correspondenceType,
         } = req.query;
 
-        // Validate pagination.
+        // Validate pagination
         const pageNumber = Number(page);
         const pageSize = Number(limit);
 
@@ -735,11 +743,12 @@ export const getAllAvak = async (req: AuthRequest, res: Response) => {
             pageSize > 100
         ) {
             return res.status(400).json({
-                message: 'Page must be positive and limit must be between 1 and 100.',
+                message:
+                    'Page must be positive and limit must be between 1 and 100.',
             });
         }
 
-        // Validate date format and actual calendar date.
+        // Validate date format and actual calendar date
         const isValidDate = (value: unknown): value is string => {
             if (
                 typeof value !== 'string' ||
@@ -768,19 +777,13 @@ export const getAllAvak = async (req: AuthRequest, res: Response) => {
             });
         }
 
-        if (
-            fromDate !== undefined &&
-            !isValidDate(fromDate)
-        ) {
+        if (fromDate !== undefined && !isValidDate(fromDate)) {
             return res.status(400).json({
                 message: 'fromDate must be a valid date in YYYY-MM-DD format.',
             });
         }
 
-        if (
-            toDate !== undefined &&
-            !isValidDate(toDate)
-        ) {
+        if (toDate !== undefined && !isValidDate(toDate)) {
             return res.status(400).json({
                 message: 'toDate must be a valid date in YYYY-MM-DD format.',
             });
@@ -798,7 +801,7 @@ export const getAllAvak = async (req: AuthRequest, res: Response) => {
 
         const where: WhereOptions = {};
 
-        // Partial search filters.
+        // Partial search filters
         if (typeof avakNumber === 'string' && avakNumber.trim()) {
             where['avakNumber'] = {
                 [Op.iLike]: `%${avakNumber.trim()}%`,
@@ -814,7 +817,7 @@ export const getAllAvak = async (req: AuthRequest, res: Response) => {
             };
         }
 
-        // Exact-match filters.
+        // Exact-match filters
         if (typeof status === 'string' && status.trim()) {
             where['status'] = status.trim();
         }
@@ -837,7 +840,7 @@ export const getAllAvak = async (req: AuthRequest, res: Response) => {
             where['correspondenceType'] = correspondenceType.trim();
         }
 
-        // createdAt date filtering.
+        // createdAt date filtering
         const createdAtFilter: {
             [Op.gte]?: Date;
             [Op.lt]?: Date;
@@ -848,9 +851,7 @@ export const getAllAvak = async (req: AuthRequest, res: Response) => {
                 `${createdDate}T00:00:00.000Z`
             );
 
-            const nextDay = new Date(
-                `${createdDate}T00:00:00.000Z`
-            );
+            const nextDay = new Date(`${createdDate}T00:00:00.000Z`);
             nextDay.setUTCDate(nextDay.getUTCDate() + 1);
 
             createdAtFilter[Op.lt] = nextDay;
@@ -869,7 +870,7 @@ export const getAllAvak = async (req: AuthRequest, res: Response) => {
                     dayAfterToDate.getUTCDate() + 1
                 );
 
-                // Includes the entire toDate.
+                // Includes the entire toDate
                 createdAtFilter[Op.lt] = dayAfterToDate;
             }
         }
@@ -880,6 +881,7 @@ export const getAllAvak = async (req: AuthRequest, res: Response) => {
 
         const offset = (pageNumber - 1) * pageSize;
 
+        // Fetch paginated AVAK records
         const { count, rows } = await Avak.findAndCountAll({
             where,
             include: [
@@ -916,6 +918,47 @@ export const getAllAvak = async (req: AuthRequest, res: Response) => {
             limit: pageSize,
             offset,
             order: [['createdAt', 'DESC']],
+            distinct: true,
+        });
+
+        // Fetch documents belonging to the AVAK records on this page
+        const avakIds = rows.map((avak) => avak.id);
+
+        const documents = avakIds.length
+            ? await Document.findAll({
+                  where: {
+                      entityId: {
+                          [Op.in]: avakIds,
+                      },
+                      documentType: DocumentType.AVAK_DOC,
+                  },
+                  order: [['createdAt', 'ASC']],
+              })
+            : [];
+
+        // Group documents by AVAK ID
+        const documentsByAvakId = new Map<
+            string,
+            typeof documents
+        >();
+
+        for (const document of documents) {
+            const entityId = document.entityId;
+            const existingDocuments =
+                documentsByAvakId.get(entityId) ?? [];
+
+            existingDocuments.push(document);
+            documentsByAvakId.set(entityId, existingDocuments);
+        }
+
+        // Attach documents to each AVAK record
+        const data = rows.map((avak) => {
+            const avakData = avak.toJSON();
+
+            return {
+                ...avakData,
+                documents: documentsByAvakId.get(avak.id) ?? [],
+            };
         });
 
         const totalPages = Math.ceil(count / pageSize);
@@ -930,7 +973,7 @@ export const getAllAvak = async (req: AuthRequest, res: Response) => {
                 hasNextPage: pageNumber < totalPages,
                 hasPreviousPage: pageNumber > 1,
             },
-            data: rows,
+            data,
         });
     } catch (error: any) {
         console.error('getAllAvak error:', error);
@@ -941,7 +984,6 @@ export const getAllAvak = async (req: AuthRequest, res: Response) => {
         });
     }
 };
-
 
 export const getAvakById = async (req: AuthRequest, res: Response) => {
     try {
@@ -993,9 +1035,21 @@ export const getAvakById = async (req: AuthRequest, res: Response) => {
             });
         }
 
+        // Fetch AVAK documents in ascending order
+        const documents = await Document.findAll({
+            where: {
+                entityId: avak.id,
+                documentType: DocumentType.AVAK_DOC,
+            },
+            order: [['createdAt', 'ASC']],
+        });
+
         return res.status(200).json({
             message: `AVAK fetched successfully. AVAK Number: ${avak.avakNumber}`,
-            data: avak,
+            data: {
+                ...avak.toJSON(),
+                documents,
+            },
         });
     } catch (error: any) {
         console.error('getAvakById error:', error);

@@ -8,6 +8,7 @@ import {
 interface AvakAttributes {
     id: string;
     avakNumber: string;
+    caseNumber: string | null;
     registrationDate: Date;
     letterReferenceNumber: string | null;
     letterDate: Date | null;
@@ -39,6 +40,7 @@ type AvakCreationAttributes = Optional<
     AvakAttributes,
     | 'id'
     | 'avakNumber'
+    | 'caseNumber'
     | 'letterReferenceNumber'
     | 'letterDate'
     | 'briefDescription'
@@ -61,6 +63,7 @@ export class Avak
 
     public id!: string;
     public avakNumber!: string;
+    public caseNumber!: string | null;
     public registrationDate!: Date;
     public letterReferenceNumber!: string | null;
     public letterDate!: Date | null;
@@ -103,6 +106,11 @@ export class Avak
                     allowNull: false,
                     unique: true,
                     field: 'avak_number',
+                },
+                caseNumber: {
+                    type: DataTypes.STRING(30),
+                    allowNull: true,
+                    field: 'case_number',
                 },
 
                 registrationDate: {

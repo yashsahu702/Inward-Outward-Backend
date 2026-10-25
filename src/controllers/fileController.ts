@@ -1,319 +1,439 @@
-import { Express, Request, Response } from 'express'
-import fs from 'fs'
-import path from 'path'
-import { getFilePathFromDB } from '../utils/fileUtils'
-import { AuthRequest } from '../types/auth.types'
-import multer from 'multer';
-import {
-  buildFilePath,
-  generateTimestamp,
-  getFolderNameForDocumentType,
-} from '../utils/documentPaths'
-import { v4 as uuidv4 } from 'uuid'
-import { pipeline } from 'stream'
-import { promisify } from 'util'
-import { Audit, Document } from '../models'
-import { Transaction } from 'sequelize'
-import { DocumentType, EntityType } from '../models/enums'
 
-const pump = promisify(pipeline)
+import { Request, Response } from 'express';
+import fs from 'fs';
+import path from 'path';
+import { AuthRequest } from '../types/auth.types';
+import { Document, Audit } from '../models';
+import { DocumentType, EntityType } from '../models/enums';
+import { Transaction } from 'sequelize';
+import { randomUUID } from 'crypto';
 
+const ALLOWED_EXTENSIONS = new Set([
+    '.pdf',
+    '.doc',
+    '.docx',
+    '.jpg',
+    '.jpeg',
+    '.png',
+]);
 
+const getSafeFilePath = (filePath: string): string => {
+    const uploadDir = process.env.UPLOAD_DIR;
 
-export const getFile = async (req: AuthRequest, res: Response) => {
-  try {
-    // Example: /api/file?fileType=buildingPhoto&fileId=abc123
-    const { fileType, fileId } = req.query
-    if (!fileType || !fileId) {
-      return res
-        .status(400)
-        .json({ message: 'fileType and fileId are required.' })
+    if (!uploadDir) {
+        throw new Error('UPLOAD_DIR environment variable must be set');
     }
 
-    // Validate environment variables
-    if (!process.env.UPLOAD_DIR) {
-      throw new Error('UPLOAD_DIR environment variable must be set')
+    const baseDir = path.resolve(uploadDir);
+    const absolutePath = path.resolve(baseDir, filePath);
+
+    if (
+        absolutePath === baseDir ||
+        !absolutePath.startsWith(baseDir + path.sep)
+    ) {
+        throw new Error('Invalid file path');
     }
 
-    const filePathFromDB = await getFilePathFromDB(
-      String(fileType),
-      String(fileId)
-    )
-    if (!filePathFromDB) {
-      return res.status(404).json({ message: 'File path not found in DB.' })
-    }
+    return absolutePath;
+};
 
-    const uploadsDir = process.env.UPLOAD_DIR
-    const normalizedRelativePath = filePathFromDB.split(/[\\/]/).join(path.sep)
-    const absoluteFilePath = path.join(uploadsDir, normalizedRelativePath)
+// Upload multiple documents for an Avak
+export const uploadAvakDocuments = async (
+    req: AuthRequest,
+    res: Response
+) => {
+    const files = req.files as Express.Multer.File[] | undefined;
+    const avakId = req.body.avakId;
+    const userId = req.user?.id;
 
-    // Security check: ensure the file path is within the uploads directory
-    if (!absoluteFilePath.startsWith(uploadsDir)) {
-      return res.status(403).json({ error: 'Unauthorized file path' })
-    }
+    const tempFiles = files ?? [];
 
-    // Check if file exists
     try {
-      await fs.promises.access(absoluteFilePath, fs.constants.R_OK)
-    } catch (err) {
-      console.error(`File not found or not readable: ${absoluteFilePath}`)
-      return res.status(404).json({
-        error: 'File not found on disk or not readable.',
-        details:
-          process.env.NODE_ENV === 'development' ? absoluteFilePath : undefined,
-      })
+        if (!avakId) {
+            return res.status(400).json({
+                message: 'avakId is required',
+            });
+        }
+
+        if (!userId) {
+            return res.status(401).json({
+                message: 'User not authenticated',
+            });
+        }
+
+        if (tempFiles.length === 0) {
+            return res.status(400).json({
+                message: 'At least one document is required',
+            });
+        }
+
+        const uploadDir = process.env.UPLOAD_DIR;
+
+        if (!uploadDir) {
+            throw new Error('UPLOAD_DIR environment variable must be set');
+        }
+
+        // Verify that the Avak exists before saving its documents.
+        const avakExists = await (
+            await import('../models/avak.model')
+        ).Avak.findByPk(avakId);
+
+        if (!avakExists) {
+            return res.status(404).json({
+                message: 'Avak not found',
+            });
+        }
+
+        const savedDocuments = [];
+
+        for (const file of tempFiles) {
+            const extension = path.extname(file.originalname).toLowerCase();
+
+            if (!ALLOWED_EXTENSIONS.has(extension)) {
+                throw new Error(`Unsupported file type: ${file.originalname}`);
+            }
+
+            const folderName = 'Avak';
+            const uniqueFileName =
+                `${avakId}-${Date.now()}-${crypto.randomUUID()}${extension}`;
+
+            const relativePath = path.join(folderName, uniqueFileName);
+            const absolutePath = getSafeFilePath(relativePath);
+
+            await fs.promises.mkdir(path.dirname(absolutePath), {
+                recursive: true,
+            });
+
+            await fs.promises.copyFile(file.path, absolutePath);
+
+            const document = await Document.create({
+                filePath: relativePath,
+                fileName: file.originalname,
+                documentType: DocumentType.AVAK_DOC,
+                entityId: avakId,
+            });
+
+            await Audit.create({
+                entity: EntityType.DOCUMENT,
+                entityId: document.id,
+                action: 'Create',
+                performedBy: userId,
+                remarks: `Avak document uploaded: ${file.originalname}`,
+                ipAddress: req.ip,
+                timestamp: new Date(),
+            });
+
+            savedDocuments.push(document);
+        }
+
+        return res.status(201).json({
+            message: 'Avak documents uploaded successfully',
+            data: savedDocuments,
+        });
+    } catch (error) {
+        console.error('Error uploading Avak documents:', error);
+
+        return res.status(500).json({
+            message: 'Failed to upload Avak documents',
+            error:
+                process.env.NODE_ENV === 'development'
+                    ? String(error)
+                    : undefined,
+        });
+    } finally {
+        // Remove temporary uploaded files.
+        await Promise.all(
+            tempFiles.map(async (file) => {
+                try {
+                    await fs.promises.unlink(file.path);
+                } catch {
+                    // Temporary file may already have been removed.
+                }
+            })
+        );
     }
+};
 
-    // (Optional) Check user's roles, etc. if you want
-    const userId = req.user?.id
-    if (!userId) {
-      return res.status(401).json({ error: 'User not authenticated.' })
-    }
-    // Some logic to ensure user can see the file:
-    // if (!(await hasAccess(userId, String(fileType), String(fileId)))) {
-    //   return res.status(403).json({ error: 'Access denied' })
-    // }
-
-    // Decide if it's an image
-    const ext = path.extname(absoluteFilePath).toLowerCase()
-    const imageExtensions = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp'])
-    const isImage = imageExtensions.has(ext)
-
-    if (!isImage) {
-      // If not an image, force download
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename="${path.basename(absoluteFilePath)}"`
-      )
-    }
-
-    // Send the file
-    return res.sendFile(absoluteFilePath)
-  } catch (error) {
-    console.error('Error serving file:', error)
-    return res.status(500).json({
-      error: 'Internal server error',
-      details:
-        process.env.NODE_ENV === 'development' ? String(error) : undefined,
-    })
-  }
-}
-export const saveFiles = async (
-  userId: string,
-  userIp: string,
-  file: Express.Multer.File,
-  docType: DocumentType,
-
-  entityId: string,
-  avakId: string,
-  transaction: Transaction
+// View a document by passing its stored relative file path.
+export const viewDocument = async (
+    req: AuthRequest,
+    res: Response
 ) => {
-  const UPLOAD_BASE_DIR = process.env.UPLOAD_DIR
+    try {
+        const userId = req.user?.id;
 
-  // Process each uploaded photo
-  const fileOperations = []
+        if (!userId) {
+            return res.status(401).json({
+                message: 'User not authenticated',
+            });
+        }
 
-  if (!UPLOAD_BASE_DIR) {
-    throw Error('UPLOAD_DIR environment variable must be set')
-  }
-  if (!docType) {
-    throw Error('Document Type must be set')
-  }
+        const { filePath } = req.body as { filePath?: string };
 
-  if (!file) {
-    console.log('No File to attach')
-    return
-  }
+        if (!filePath || typeof filePath !== 'string') {
+            return res.status(400).json({
+                message: 'filePath is required',
+            });
+        }
 
-  const folderName = getFolderNameForDocumentType(docType)
-  const timeStr = generateTimestamp()
-  const ext = path.extname(file.originalname)
-  const randomSuffix = uuidv4().split('-')[0] // e.g. "3f7a"
-  const newFileName = `${avakId}-${timeStr}-${randomSuffix}${ext}`
+        let absolutePath: string;
 
-  const relativePath = buildFilePath(folderName, newFileName)
-  const finalFilePath = path.join(UPLOAD_BASE_DIR, relativePath)
-  const tempFilePath = file.path
+        try {
+            absolutePath = getSafeFilePath(filePath);
+        } catch {
+            return res.status(403).json({
+                message: 'Invalid file path',
+            });
+        }
 
-  fileOperations.push({
-    tempPath: tempFilePath,
-    finalPath: finalFilePath,
-  })
+        try {
+            await fs.promises.access(absolutePath, fs.constants.R_OK);
+        } catch {
+            return res.status(404).json({
+                message: 'Document not found',
+            });
+        }
 
-  console.log(`Processing photo: ${file.originalname} -> ${newFileName}`)
+        const extension = path.extname(absolutePath).toLowerCase();
 
-  // Ensure final folder structure exists
-  await fs.promises.mkdir(path.dirname(finalFilePath), {
-    recursive: true,
-  })
+        if (!ALLOWED_EXTENSIONS.has(extension)) {
+            return res.status(400).json({
+                message: 'Unsupported document type',
+            });
+        }
 
-  // Move the file from temp to final destination
-  const readStream = fs.createReadStream(tempFilePath)
-  const writeStream = fs.createWriteStream(finalFilePath)
-  await pump(readStream, writeStream)
-  console.log(
-    `Successfully moved photo from ${tempFilePath} to ${finalFilePath}`
-  )
+        const inlineExtensions = new Set([
+            '.pdf',
+            '.jpg',
+            '.jpeg',
+            '.png',
+        ]);
 
-  // Create a Document record for this status photo
-  const document = await Document.create(
-    {
+        const contentType: Record<string, string> = {
+            '.pdf': 'application/pdf',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.png': 'image/png',
+            '.doc': 'application/msword',
+            '.docx':
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        };
 
-      filePath: relativePath,
-      fileName: file.originalname,
-      documentType: docType,
-    avakId:avakId
+        res.setHeader(
+            'Content-Type',
+            contentType[extension] || 'application/octet-stream'
+        );
 
-    },
-    { transaction }
-  )
+        res.setHeader(
+            'Content-Disposition',
+            `${inlineExtensions.has(extension) ? 'inline' : 'attachment'}; filename="${path.basename(absolutePath)}"`
+        );
 
-  console.log(`Created document record with ID: ${document.id}`)
+        return res.sendFile(absolutePath);
+    } catch (error) {
+        console.error('Error viewing document:', error);
 
-  // Audit the photo upload
-  await Audit.create(
-    {
-      entity: EntityType.DOCUMENT,
-      entityId: document.id,
-      action: 'Create',
-      performedBy: userId,
-      remarks: `File - ${docType} with name "${document.fileName}" uploaded for building.`,
-      ipAddress: userIp,
-      timestamp: new Date(),
-    },
-    { transaction }
-  )
-
-  if (!document.id) {
-    return null
-  }
-
-
-  return document;
-}
-
-
-
-
-export const getFilePath = async (req: AuthRequest, res: Response) => {
-  try {
-    // Extract fileType and fileId from the request body (since the frontend is POSTing)
-    const { filePath } = req.body
-
-    // Step 1: Get the file path from the database or business logic
-
-    if (!filePath) {
-      return res.status(404).json({ error: 'File not found.' })
+        return res.status(500).json({
+            message: 'Failed to view document',
+        });
     }
 
-    const uploadsDir = process.env.UPLOAD_DIR
-
-    // Step 2: Normalize file path separators so it works cross-platform
-    const normalizedRelativePath = filePath.split(/[\\/]/).join(path.sep)
+    
 
 
-    // Step 3: Define the allowed base directory for file storage
-    // const fileDirectory = path.resolve('uploads') // adjust if necessary
-    // console.log('fileDirectory==>', fileDirectory)
-
-    // Step 4: Build the absolute file path
-    const absoluteFilePath = path.join(uploadsDir!, normalizedRelativePath)
+};
 
 
-    // Step 5: Security check - ensure the file is within the allowed directory
-    if (!absoluteFilePath.startsWith(uploadsDir!)) {
-      return res.status(403).json({ error: 'Unauthorized access to the file.' })
+const createStoredFile = async (
+    avakId: string,
+    file: Express.Multer.File
+): Promise<{
+    filePath: string;
+    fileName: string;
+    absolutePath: string;
+}> => {
+    const uploadDir = process.env.UPLOAD_DIR;
+
+    if (!uploadDir) {
+        throw new Error('UPLOAD_DIR environment variable must be set');
     }
 
-    // Step 6: Check if the file exists
-    if (!fs.existsSync(absoluteFilePath)) {
-      return res.status(404).json({ error: 'File not found.' })
+    const extension = path.extname(file.originalname).toLowerCase();
+
+    if (!ALLOWED_EXTENSIONS.has(extension)) {
+        throw new Error('Unsupported file type');
     }
 
-    // Step 7: Authorization check - ensure the user is authenticated and allowed to access the file.
-    const userId = req.user?.id
-    const userWards = req.authorizedWardIds
+    const fileName = `${avakId}-${Date.now()}-${randomUUID()}${extension}`;
+    const relativePath = path.join('Avak', fileName);
+    const absolutePath = getSafeFilePath(relativePath);
+
+    await fs.promises.mkdir(path.dirname(absolutePath), {
+        recursive: true,
+    });
+
+    await fs.promises.copyFile(file.path, absolutePath);
+
+    return {
+        filePath: relativePath,
+        fileName: file.originalname,
+        absolutePath,
+    };
+};
 
 
-    if (!userId) {
-      return res.status(401).json({ error: 'User not authenticated.' })
-    }
-    //  if (!(await hasAccessToFile(userId, fileType, fileId, userWards))) {
-    //   return res
-    //     .status(403)
-    //     .json({ error: 'Unauthorized to access this file.' })
-    // }
-
-    // Step 8: Set headers to force the browser to download the file (instead of displaying raw binary)
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${path.basename(absoluteFilePath)}"`
-    )
-
-    // Step 9: Send the file
-    return res.sendFile(absoluteFilePath)
-  } catch (error) {
-    console.error('Error retrieving file:', error)
-    return res.status(500).json({ error: 'Internal server error' })
-  }
-}
-
-
-export const replaceDocumentFile = async (
-  documentId: string,
-  file: Express.Multer.File,
-  recordId: string,
-  transaction: Transaction
+export const replaceDocument = async (
+    req: AuthRequest,
+    res: Response
 ) => {
-  const UPLOAD_DIR = process.env.UPLOAD_DIR
+    let newFilePath: string | null = null;
 
-  if (!UPLOAD_DIR) {
-    throw new Error('UPLOAD_DIR not configured')
-  }
+    try {
+        const { documentId } = req.params;
+        const file = req.file;
+        const userId = req.user?.id;
 
-  const existingDocument = await Document.findByPk(documentId)
+        if (!userId) {
+            return res.status(401).json({
+                message: 'User not authenticated',
+            });
+        }
 
-  if (!existingDocument) {
-    throw new Error(`Document with id ${documentId} not found`)
-  }
+        if (!file) {
+            return res.status(400).json({
+                message: 'Replacement file is required',
+            });
+        }
 
-  // 🔴 1️⃣ Delete old file from storage
-  const oldFilePath = path.join(UPLOAD_DIR, existingDocument.filePath)
+        const extension = path.extname(file.originalname).toLowerCase();
 
-  if (fs.existsSync(oldFilePath)) {
-    fs.unlinkSync(oldFilePath)
-  }
+        if (!ALLOWED_EXTENSIONS.has(extension)) {
+            return res.status(400).json({
+                message: 'Only PDF, DOC, DOCX, JPG, JPEG and PNG files are allowed',
+            });
+        }
 
-  // 🟢 2️⃣ Generate new file path
-  const folderName = getFolderNameForDocumentType(
-    existingDocument.documentType
-  )
+        const document = await Document.findOne({
+            where: {
+                id: documentId,
+             //   documentType: DocumentType.AVAK_DOC,
+            },
+        });
 
-  const timeStr = generateTimestamp()
-  const ext = path.extname(file.originalname)
-  const newFileName = `${recordId}-${timeStr}${ext}`
+        if (!document) {
+            return res.status(404).json({
+                message: 'Avak document not found',
+            });
+        }
 
-  const relativePath = buildFilePath(folderName, newFileName)
-  const finalPath = path.join(UPLOAD_DIR, relativePath)
+        const avakId = document.entityId;
 
-  await fs.promises.mkdir(path.dirname(finalPath), {
-    recursive: true,
-  })
+        const stored = await createStoredFile(avakId, file);
+        newFilePath = stored.absolutePath;
 
-  // 🟢 3️⃣ Move new file
-  await pump(
-    fs.createReadStream(file.path),
-    fs.createWriteStream(finalPath)
-  )
+        const oldFilePath = getSafeFilePath(document.filePath);
 
-  // 🟢 4️⃣ Update DB
-  await existingDocument.update(
-    {
-      filePath: relativePath,
-      fileName: file.originalname,
-    },
-    { transaction }
-  )
+        await document.update({
+            filePath: stored.filePath,
+            fileName: file.originalname,
+        });
 
-  return existingDocument
-}
+        // Delete old file only after the database update succeeds.
+        try {
+            await fs.promises.unlink(oldFilePath);
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+                console.error('Could not delete old document file:', error);
+            }
+        }
+
+        return res.status(200).json({
+            message: 'Document replaced successfully',
+            data: document,
+        });
+    } catch (error) {
+        // Remove the new file if replacement failed.
+        if (newFilePath) {
+            try {
+                await fs.promises.unlink(newFilePath);
+            } catch {
+                // File may already be absent.
+            }
+        }
+
+        console.error('Error replacing Avak document:', error);
+
+        return res.status(500).json({
+            message: 'Failed to replace document',
+        });
+    } finally {
+        if (req.file?.path) {
+            try {
+                await fs.promises.unlink(req.file.path);
+            } catch {
+                // Temporary file may already be absent.
+            }
+        }
+    }
+};
+
+
+
+
+export const deleteDocument = async (
+    req: AuthRequest,
+    res: Response
+) => {
+    try {
+        const { documentId } = req.params;
+        const userId = req.user?.id;
+
+        if (!userId) {
+            return res.status(401).json({
+                message: 'User not authenticated',
+            });
+        }
+
+        const document = await Document.findOne({
+            where: {
+                id: documentId,
+             //   documentType: DocumentType.AVAK_DOC,
+            },
+        });
+
+        if (!document) {
+            return res.status(404).json({
+                message: 'Avak document not found',
+            });
+        }
+
+        const absolutePath = getSafeFilePath(document.filePath);
+
+        // Remove database record first.
+        await document.destroy();
+
+        // Remove the physical file.
+        try {
+            await fs.promises.unlink(absolutePath);
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+                console.error('Could not delete document file:', error);
+
+                return res.status(200).json({
+                    message: 'Document record deleted, but physical file cleanup failed',
+                });
+            }
+        }
+
+        return res.status(200).json({
+            message: 'Document deleted successfully',
+            documentId,
+        });
+    } catch (error) {
+        console.error('Error deleting Avak document:', error);
+
+        return res.status(500).json({
+            message: 'Failed to delete document',
+        });
+    }
+};

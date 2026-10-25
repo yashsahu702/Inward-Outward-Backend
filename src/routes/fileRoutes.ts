@@ -1,14 +1,40 @@
-import { Router } from 'express'
-import { authenticateJWT } from '../middleware/auth'
-import { getFile, getFilePath } from '../controllers/fileController'
 
-const router = Router()
+import { Router } from 'express';
+import { authenticateJWT } from '../middleware/auth';
+import { avakDocumentUpload } from '../middleware/avakDocumentUpload';
+import {
+    deleteDocument,
+    replaceDocument,
+    uploadAvakDocuments,
+    viewDocument,
+} from '../controllers/fileController';
 
-router.get('/getSingleFile', authenticateJWT, getFile)
+const router = Router();
 
+router.post(
+    '/upload/avakDocuments',
+    authenticateJWT,
+    avakDocumentUpload.array('documents', 10),
+    uploadAvakDocuments
+);
 
+router.post(
+    '/view',
+    authenticateJWT,
+    viewDocument
+);
 
-router.post('/getFile', authenticateJWT, getFilePath)
+router.put(
+    '/replace/:documentId',
+    authenticateJWT,
+    avakDocumentUpload.single('document'),
+    replaceDocument
+);
 
+router.delete(
+    '/delete/:documentId',
+    authenticateJWT,
+    deleteDocument
+);
 
-export default router
+export default router;

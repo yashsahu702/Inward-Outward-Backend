@@ -1,3 +1,4 @@
+
 import { Model, DataTypes, Sequelize, Optional } from 'sequelize';
 import { DocumentType } from './enums';
 
@@ -6,7 +7,7 @@ interface DocumentAttributes {
     filePath: string;
     fileName?: string | null;
     documentType: DocumentType;
-    avakId: string;
+    entityId: string;
     duration?: string | null;
     startingTime?: Date | null;
     createdAt?: Date;
@@ -19,7 +20,6 @@ type DocumentCreationAttributes = Optional<
     | 'fileName'
     | 'createdAt'
     | 'updatedAt'
-    | 'documentType'
     | 'duration'
     | 'startingTime'
 >;
@@ -32,7 +32,7 @@ export class Document
     public filePath!: string;
     public fileName!: string | null;
     public documentType!: DocumentType;
-    public avakId!: string;
+    public entityId!: string;
     public duration!: string | null;
     public startingTime!: Date | null;
 
@@ -63,23 +63,15 @@ export class Document
                 },
 
                 documentType: {
-                    type: DataTypes.ENUM(
-                        DocumentType.OLD_RECORD
-                    ),
+                    type: DataTypes.STRING,
                     allowNull: false,
                     field: 'document_type',
                 },
 
-                avakId: {
+                entityId: {
                     type: DataTypes.UUID,
                     allowNull: false,
-                    field: 'avak_id',
-                    references: {
-                        model: 'avaks',
-                        key: 'id',
-                    },
-                    onDelete: 'CASCADE',
-                    onUpdate: 'CASCADE',
+                    field: 'entity_id',
                 },
 
                 duration: {

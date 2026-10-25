@@ -356,18 +356,18 @@ User.hasMany(Avak, {
     as: 'markedAvaks',
 });
 
-// One Avak has multiple documents
-Avak.hasMany(Document, {
-    foreignKey: 'avakId',
-    as: 'documents',
-    onDelete: 'CASCADE',
-});
+// // One Avak has multiple documents
+// Avak.hasMany(Document, {
+//     foreignKey: 'avakId',
+//     as: 'documents',
+//     onDelete: 'CASCADE',
+// });
 
-// Each document belongs to one Avak
-Document.belongsTo(Avak, {
-    foreignKey: 'avakId',
-    as: 'avak',
-});
+// // Each document belongs to one Avak
+// Document.belongsTo(Avak, {
+//     foreignKey: 'avakId',
+//     as: 'avak',
+// });
 
 // One Avak has many remarks
 Avak.hasMany(RemarkRecord, {

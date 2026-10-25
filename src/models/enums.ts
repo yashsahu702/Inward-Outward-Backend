@@ -1,15 +1,9 @@
 // src/models/enums.ts
 
 export enum DocumentType {
-  OLD_RECORD = 'Old-Record',
-  NOC = 'Noc',
-  BUILDING_DOC = 'Building-Doc',
-  BUILDING_PHOTO = 'Building-Photo',
-  BUILDING_STATUS_PHOTO = 'Building-Status-Photo',
-  IOD = 'IOD',
-  BUILDING_CC = 'Building-CC',
-  BUILDING_OC = 'Building-OC',
-  SURPLUS_AREA = 'Surplus-Area'
+    AVAK_DOC = 'AVAK_DOC',
+    JAVAK_DOC = 'JAVAK_DOC',
+    USER_DOC = 'USER_DOC',
 }
 
 export enum EntityType {
