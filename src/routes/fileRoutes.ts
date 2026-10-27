@@ -24,14 +24,14 @@ router.post(
     viewDocument
 );
 
-router.put(
+router.post(
     '/replace/:documentId',
     authenticateJWT,
     avakDocumentUpload.single('document'),
     replaceDocument
 );
 
-router.delete(
+router.post(
     '/delete/:documentId',
     authenticateJWT,
     deleteDocument

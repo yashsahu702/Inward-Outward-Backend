@@ -4,8 +4,8 @@ import { createAvak, getAllAvak, getAvakById, updateAvak } from '../controllers/
 import { authenticateJWT } from '../middleware/auth'
 const router = Router()
 
-router.post('/createBranch',authenticateJWT, createAvak)
-router.post('/updateBranch',authenticateJWT, updateAvak)
+router.post('/createAvak',authenticateJWT, createAvak)
+router.post('/updateAvak',authenticateJWT, updateAvak)
 router.get('/getAll',authenticateJWT, getAllAvak);
 router.get('/getByAvakId/:id',authenticateJWT, getAvakById);
 export default router
