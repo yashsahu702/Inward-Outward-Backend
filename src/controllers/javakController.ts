@@ -80,7 +80,8 @@ const javakIncludes = [
 
 /**
  * GET JAVAK BY ID
- * Fetches Javak with its associated Avak, sender, branch and section.
+ * Fetches Javak with associated Avak, sender, branch,
+ * section, JAVAK documents and AVAK documents.
  */
 export const getJavakById = async (
     req: AuthRequest,
@@ -95,6 +96,7 @@ export const getJavakById = async (
             });
         }
 
+        // Fetch JAVAK with associated AVAK details
         const javak = await Javak.findByPk(id, {
             include: javakIncludes,
         });
@@ -105,8 +107,11 @@ export const getJavakById = async (
             });
         }
 
-        // Fetch related JAVAK documents
-        const documents = await Document.findAll({
+        // Convert Sequelize instance into plain object
+        const javakData = javak.toJSON() as any;
+
+        // Fetch JAVAK documents
+        const javakDocuments = await Document.findAll({
             where: {
                 entityId: javak.id,
                 documentType: DocumentType.JAVAK_DOC,
@@ -114,13 +119,38 @@ export const getJavakById = async (
             order: [['createdAt', 'ASC']],
         });
 
+        // Fetch AVAK documents
+        let avakDocuments: Document[] = [];
+
+        if (javakData.avak?.id) {
+            avakDocuments = await Document.findAll({
+                where: {
+                    entityId: javakData.avak.id,
+                    documentType: DocumentType.AVAK_DOC,
+                },
+                order: [['createdAt', 'ASC']],
+            });
+        }
+
+        // Prepare final response
         return res.status(200).json({
             message: `JAVAK fetched successfully. JAVAK Number: ${javak.javakNumber}`,
             data: {
-                ...javak.toJSON(),
-                documents,
+                ...javakData,
+
+                // JAVAK documents
+                documents: javakDocuments,
+
+                // AVAK details with its documents
+                avak: javakData.avak
+                    ? {
+                        ...javakData.avak,
+                        documents: avakDocuments,
+                    }
+                    : null,
             },
         });
+
     } catch (error: any) {
         console.error('getJavakById error:', error);
 
