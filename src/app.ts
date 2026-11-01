@@ -1,3 +1,4 @@
+import { getDashboard } from './controllers/dashboardController';
 import path from 'path'
 import './config/env'
 
@@ -33,6 +34,7 @@ import senderRoutes from './routes/senderRoutes'
 import avakRoutes from './routes/avakRoutes'
 import notificationRoutes from './routes/notificationOrdmsRoutes'
 import javakRoutes from './routes/javakRoutes';
+import dashboardRoutes from './routes/dashboardRoutes';
 const app = express()
 const port = process.env.PORT || 5050
 
@@ -92,6 +94,7 @@ app.use('/api/user-sections', userSectionRoutes)
 app.use('/api/senders', senderRoutes)
 app.use('/api/avak', avakRoutes)
 app.use('/api/javak', javakRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 // const startNotificationJob = async () => {
 //   console.log('🚀 Running Notification Job on Startup')
 //   await generateNotifications()
