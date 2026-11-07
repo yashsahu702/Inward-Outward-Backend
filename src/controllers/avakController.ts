@@ -315,7 +315,7 @@ if (branchSectionId && !senderId) {
     isDocumentReceived: false,
     receivedDocumentDate: null,
     actionRemarks: null,
-    status: 'Draft',
+    status: 'Pending',
     dispatchMode: null,
   },
   { transaction }
@@ -1283,3 +1283,5 @@ export const getAvakById = async (req: AuthRequest, res: Response) => {
         });
     }
 };
+
+

@@ -637,3 +637,205 @@ export const getDashboard = async (
         });
     }
 };
+
+
+
+
+export const getAvakJavakStatusCounts = async (
+    req: AuthRequest,
+    res: Response
+) => {
+    try {
+        const { month, year } = req.body;
+
+        // ---------------------------------
+        // VALIDATE FILTERS
+        // ---------------------------------
+
+        if (month !== undefined && month !== null) {
+            if (
+                !Number.isInteger(Number(month)) ||
+                Number(month) < 1 ||
+                Number(month) > 12
+            ) {
+                return res.status(400).json({
+                    message: 'Invalid month. Month must be between 1 and 12.'
+                });
+            }
+
+            if (year === undefined || year === null) {
+                return res.status(400).json({
+                    message: 'Year is required when month is provided.'
+                });
+            }
+        }
+
+        if (year !== undefined && year !== null) {
+            if (
+                !Number.isInteger(Number(year)) ||
+                Number(year) < 2000 ||
+                Number(year) > 2100
+            ) {
+                return res.status(400).json({
+                    message: 'Invalid year.'
+                });
+            }
+        }
+
+        // ---------------------------------
+        // BUILD DATE FILTER
+        // ---------------------------------
+
+        const avakWhere: any = {};
+
+        if (year !== undefined && year !== null) {
+            const selectedYear = Number(year);
+
+            let startDate: Date;
+            let endDate: Date;
+
+            if (month !== undefined && month !== null) {
+                const selectedMonth = Number(month) - 1;
+
+                startDate = new Date(
+                    selectedYear,
+                    selectedMonth,
+                    1
+                );
+
+                endDate = new Date(
+                    selectedYear,
+                    selectedMonth + 1,
+                    1
+                );
+            } else {
+                // Full year
+                startDate = new Date(selectedYear, 0, 1);
+
+                endDate = new Date(selectedYear + 1, 0, 1);
+            }
+
+            avakWhere.registrationDate = {
+                [Op.gte]: startDate,
+                [Op.lt]: endDate
+            };
+        }
+
+        // ---------------------------------
+        // JAVAK FILTER THROUGH AVAK
+        // ---------------------------------
+
+        const javakInclude = [
+            {
+                model: Avak,
+                as: 'avak',
+                attributes: [],
+                required: true,
+                where: avakWhere
+            }
+        ];
+
+        // ---------------------------------
+        // FETCH COUNTS
+        // ---------------------------------
+
+        const [
+            totalAvak,
+            avakStatusWise,
+            javakStatusWise
+        ] = await Promise.all([
+
+            // Total Avak
+            Avak.count({
+                where: avakWhere
+            }),
+
+            // Avak status-wise count
+            Avak.findAll({
+                attributes: [
+                    'status',
+                    [
+                        Sequelize.fn(
+                            'COUNT',
+                            Sequelize.col('Avak.id')
+                        ),
+                        'count'
+                    ]
+                ],
+                where: avakWhere,
+                group: ['Avak.status'],
+                order: [[Sequelize.col('Avak.status'), 'ASC']],
+                raw: true
+            }),
+
+            // Javak status-wise count
+            Javak.findAll({
+                attributes: [
+                    'status',
+                    [
+                        Sequelize.fn(
+                            'COUNT',
+                            Sequelize.col('Javak.id')
+                        ),
+                        'count'
+                    ]
+                ],
+                include: javakInclude,
+                group: ['Javak.status'],
+                order: [[Sequelize.col('Javak.status'), 'ASC']],
+                raw: true
+            })
+        ]);
+
+        // ---------------------------------
+        // FORMAT RESPONSE
+        // ---------------------------------
+
+        const formattedAvakStatusWise =
+            (avakStatusWise as any[]).map(item => ({
+                status: item.status ?? 'Not Set',
+                count: Number(item.count)
+            }));
+
+        const formattedJavakStatusWise =
+            (javakStatusWise as any[]).map(item => ({
+                status: item.status ?? 'Not Set',
+                count: Number(item.count)
+            }));
+
+        // ---------------------------------
+        // FINAL RESPONSE
+        // ---------------------------------
+
+        return res.status(200).json({
+            message: 'Avak and Javak status counts fetched successfully.',
+
+            filters: {
+                month: month ? Number(month) : null,
+                year: year ? Number(year) : null
+            },
+
+            data: {
+                totalAvak: Number(totalAvak),
+
+                // Always equal to totalAvak
+                totalJavak: Number(totalAvak),
+
+                avakStatusWise: formattedAvakStatusWise,
+
+                javakStatusWise: formattedJavakStatusWise
+            }
+        });
+
+    } catch (error: any) {
+        console.error(
+            'getAvakJavakStatusCounts error:',
+            error
+        );
+
+        return res.status(500).json({
+            message: 'Failed to fetch Avak and Javak status counts.',
+            error: error.message
+        });
+    }
+};
