@@ -1,6 +1,6 @@
 
 import { Router } from 'express'
-import { createAvak, getAllAvak, getAvakById, updateAvak } from '../controllers/avakController'
+import { createAvak, getAllAvak, getAllCases, getAvakByCaseNo, getAvakById, updateAvak } from '../controllers/avakController'
 import { authenticateJWT } from '../middleware/auth'
 const router = Router()
 
@@ -8,6 +8,17 @@ router.post('/createAvak',authenticateJWT, createAvak)
 router.post('/updateAvak',authenticateJWT, updateAvak)
 router.get('/getAll',authenticateJWT, getAllAvak);
 router.get('/getByAvakId/:id',authenticateJWT, getAvakById);
+router.get(
+    '/case/:caseNo',
+    authenticateJWT,
+    getAvakByCaseNo
+);
+
+router.get(
+    '/cases',
+    authenticateJWT,
+    getAllCases
+);
 export default router
 
 

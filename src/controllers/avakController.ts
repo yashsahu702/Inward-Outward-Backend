@@ -1285,3 +1285,450 @@ export const getAvakById = async (req: AuthRequest, res: Response) => {
 };
 
 
+
+
+export const getAvakByCaseNo = async (
+    req: AuthRequest,
+    res: Response
+) => {
+    try {
+        const { caseNo } = req.params;
+
+        // -----------------------------------------
+        // 1. VALIDATE CASE NUMBER
+        // -----------------------------------------
+
+        if (!caseNo || !caseNo.trim()) {
+            return res.status(400).json({
+                message: 'Case number is required.'
+            });
+        }
+
+        const caseNumber = caseNo.trim();
+
+        // -----------------------------------------
+        // 2. FETCH AVAKS BY CASE NUMBER
+        // -----------------------------------------
+
+        const avaks = await Avak.findAll({
+            where: {
+                caseNumber: {
+                    [Op.eq]: caseNumber
+                }
+            },
+            include: [
+                {
+                    model: Sender,
+                    as: 'sender',
+                    required: false
+                },
+                {
+                    model: Section,
+                    as: 'markedSection',
+                    required: false
+                }
+            ],
+            order: [
+                ['registrationDate', 'ASC'],
+                ['createdAt', 'ASC']
+            ]
+        });
+
+        if (!avaks.length) {
+            return res.status(404).json({
+                message: 'No Avak records found for this case number.',
+                data: {
+                    caseNumber,
+                    totalAvaks: 0,
+                    totalJavaks: 0,
+                    avaks: [],
+                    javaks: [],
+                    documents: []
+                }
+            });
+        }
+
+        // -----------------------------------------
+        // 3. GET AVAK, BRANCH AND SECTION IDS
+        // -----------------------------------------
+
+        const avakIds = avaks.map(avak => avak.id);
+
+        const branchIds = [
+            ...new Set(
+                avaks
+                    .map(avak => avak.branchId)
+                    .filter((id): id is string => !!id)
+            )
+        ];
+
+        const branchSectionIds = [
+            ...new Set(
+                avaks
+                    .map(avak => avak.branchSectionId)
+                    .filter((id): id is string => !!id)
+            )
+        ];
+
+        // -----------------------------------------
+        // 4. FETCH EXACT BRANCHES AND BRANCH SECTIONS
+        // -----------------------------------------
+
+        const [
+            branches,
+            branchSections
+        ] = await Promise.all([
+
+            branchIds.length
+                ? Branch.findAll({
+                    where: {
+                        id: {
+                            [Op.in]: branchIds
+                        }
+                    },
+                    raw: true
+                })
+                : Promise.resolve([]),
+
+            branchSectionIds.length
+                ? BranchSection.findAll({
+                    where: {
+                        id: {
+                            [Op.in]: branchSectionIds
+                        }
+                    },
+                    raw: true
+                })
+                : Promise.resolve([])
+        ]);
+
+        const branchMap = new Map(
+            (branches as any[]).map(branch => [
+                branch.id,
+                branch
+            ])
+        );
+
+        const branchSectionMap = new Map(
+            (branchSections as any[]).map(section => [
+                section.id,
+                section
+            ])
+        );
+
+        // -----------------------------------------
+        // 5. FETCH RELATED JAVAKS
+        // -----------------------------------------
+
+        const javaks = await Javak.findAll({
+            where: {
+                avakId: {
+                    [Op.in]: avakIds
+                }
+            },
+            order: [
+                ['createdAt', 'ASC']
+            ]
+        });
+
+        const javakIds = javaks.map(javak => javak.id);
+
+        const javakMap = new Map<string, Javak>();
+
+        for (const javak of javaks) {
+            javakMap.set(javak.avakId, javak);
+        }
+
+        // -----------------------------------------
+        // 6. FETCH ALL AVAK AND JAVAK DOCUMENTS
+        // -----------------------------------------
+
+        const documentConditions: any[] = [];
+
+        if (avakIds.length) {
+            documentConditions.push({
+                entityId: {
+                    [Op.in]: avakIds
+                },
+                documentType: DocumentType.AVAK_DOC
+            });
+        }
+
+        if (javakIds.length) {
+            documentConditions.push({
+                entityId: {
+                    [Op.in]: javakIds
+                },
+                documentType: DocumentType.JAVAK_DOC
+            });
+        }
+
+        const allDocuments = documentConditions.length
+            ? await Document.findAll({
+                where: {
+                    [Op.or]: documentConditions
+                },
+                order: [
+                    ['createdAt', 'ASC']
+                ]
+            })
+            : [];
+
+        // -----------------------------------------
+        // 7. GROUP DOCUMENTS BY ENTITY ID
+        // -----------------------------------------
+
+        const avakDocumentsMap = new Map<string, any[]>();
+        const javakDocumentsMap = new Map<string, any[]>();
+
+        for (const document of allDocuments) {
+            const doc: any = document.toJSON();
+
+            if (doc.documentType === DocumentType.AVAK_DOC) {
+                const existing =
+                    avakDocumentsMap.get(doc.entityId) || [];
+
+                existing.push(doc);
+
+                avakDocumentsMap.set(doc.entityId, existing);
+            }
+
+            if (doc.documentType === DocumentType.JAVAK_DOC) {
+                const existing =
+                    javakDocumentsMap.get(doc.entityId) || [];
+
+                existing.push(doc);
+
+                javakDocumentsMap.set(doc.entityId, existing);
+            }
+        }
+
+        // -----------------------------------------
+        // 8. FORMAT AVAKS WITH BRANCH, SECTION,
+        // DOCUMENTS AND RELATED JAVAK
+        // -----------------------------------------
+
+        const formattedAvaks = avaks.map(avak => {
+            const avakData: any = avak.toJSON();
+
+            const relatedJavak = javakMap.get(avak.id);
+
+            return {
+                ...avakData,
+
+                branch: avak.branchId
+                    ? branchMap.get(avak.branchId) || null
+                    : null,
+
+                branchSection: avak.branchSectionId
+                    ? branchSectionMap.get(avak.branchSectionId) || null
+                    : null,
+
+                documents:
+                    avakDocumentsMap.get(avak.id) || [],
+
+                javak: relatedJavak
+                    ? {
+                        ...relatedJavak.toJSON(),
+                        documents:
+                            javakDocumentsMap.get(relatedJavak.id) || []
+                    }
+                    : null
+            };
+        });
+
+        // -----------------------------------------
+        // 9. FORMAT JAVAKS WITH DOCUMENTS
+        // -----------------------------------------
+
+        const formattedJavaks = javaks.map(javak => ({
+            ...javak.toJSON(),
+
+            documents:
+                javakDocumentsMap.get(javak.id) || []
+        }));
+
+        // -----------------------------------------
+        // 10. FINAL RESPONSE
+        // -----------------------------------------
+
+        return res.status(200).json({
+            message: 'Case details fetched successfully.',
+
+            data: {
+                caseNumber,
+
+                totalAvaks: formattedAvaks.length,
+
+                totalJavaks: formattedJavaks.length,
+
+                avaks: formattedAvaks,
+
+                javaks: formattedJavaks,
+
+                documents: allDocuments.map(
+                    document => document.toJSON()
+                )
+            }
+        });
+
+    } catch (error: any) {
+        console.error('getAvakByCaseNo error:', error);
+
+        return res.status(500).json({
+            message: 'Failed to fetch case details.',
+            error: error.message
+        });
+    }
+};
+
+
+export const getAllCases = async (
+    req: AuthRequest,
+    res: Response
+) => {
+    try {
+
+        // -----------------------------------------
+        // 1. FETCH AVAKS HAVING CASE NUMBER
+        // -----------------------------------------
+
+        const avaks = await Avak.findAll({
+            attributes: [
+                'id',
+                'caseNumber',
+                'subject',
+                'registrationDate',
+                'createdAt'
+            ],
+
+            where: {
+                caseNumber: {
+                    [Op.not]: null,
+                    [Op.ne]: ''
+                }
+            },
+
+            include: [
+                {
+                    model: Sender,
+                    as: 'sender',
+                    attributes: ['senderName'],
+                    required: false
+                }
+            ],
+
+            order: [
+                ['registrationDate', 'ASC'],
+                ['createdAt', 'ASC']
+            ]
+        });
+
+        // -----------------------------------------
+        // 2. GROUP AVAKS BY CASE NUMBER
+        // -----------------------------------------
+
+        const caseMap = new Map<string, any>();
+
+        for (const avak of avaks) {
+
+            const avakData: any = avak.toJSON();
+
+            const caseNumber = avakData.caseNumber;
+
+            if (!caseMap.has(caseNumber)) {
+
+                // First Avak of this case
+                caseMap.set(caseNumber, {
+                    caseNumber,
+
+                    // Details from first Avak
+                    senderName:
+                        avakData.sender?.senderName ?? null,
+
+                    subject:
+                        avakData.subject ?? null,
+
+                    totalAvaks: 0,
+                    totalJavaks: 0
+                });
+            }
+
+            // Increment Avak count
+            caseMap.get(caseNumber).totalAvaks++;
+        }
+
+        // -----------------------------------------
+        // 3. FETCH ALL JAVAKS WITH ASSOCIATED AVAK
+        // -----------------------------------------
+
+        const javaks = await Javak.findAll({
+            attributes: [
+                'id'
+            ],
+
+            include: [
+                {
+                    model: Avak,
+                    as: 'avak',
+                    attributes: [
+                        'caseNumber'
+                    ],
+                    required: true,
+
+                    where: {
+                        caseNumber: {
+                            [Op.not]: null,
+                            [Op.ne]: ''
+                        }
+                    }
+                }
+            ]
+        });
+
+        // -----------------------------------------
+        // 4. COUNT JAVAKS CASE-WISE
+        // -----------------------------------------
+
+        for (const javak of javaks) {
+
+            const javakData: any = javak.toJSON();
+
+            const caseNumber =
+                javakData.avak?.caseNumber;
+
+            if (caseNumber && caseMap.has(caseNumber)) {
+
+                caseMap.get(caseNumber).totalJavaks++;
+            }
+        }
+
+        // -----------------------------------------
+        // 5. FINAL CASE ARRAY
+        // -----------------------------------------
+
+        const cases = Array.from(caseMap.values());
+
+        // -----------------------------------------
+        // 6. FINAL RESPONSE
+        // -----------------------------------------
+
+        return res.status(200).json({
+            message: 'Cases fetched successfully.',
+
+            data: {
+                totalCases: cases.length,
+                cases
+            }
+        });
+
+    } catch (error: any) {
+
+        console.error('getAllCases error:', error);
+
+        return res.status(500).json({
+            message: 'Failed to fetch cases.',
+            error: error.message
+        });
+    }
+};
