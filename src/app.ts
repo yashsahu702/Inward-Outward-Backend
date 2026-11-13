@@ -24,6 +24,7 @@ import authRoutes from './routes/authRoutes'
 import fileRoutes from './routes/fileRoutes'
 import roleRoutes from './routes/roleRoutes'
 import departmentRoutes from './routes/departmentRoutes'
+import auditRoutes from './routes/auditRoutes'
 //import { notificationService } from './services/notificationService'
 import { testEmailConfig } from './utils/emailConfigTester'
 import subjectRoutes from './routes/subjectRoutes'
@@ -83,6 +84,7 @@ app.use(requestLogger)
 testEmailConfig()
 
 app.use('/auth', authRoutes)
+app.use('/api/audits', auditRoutes);
 app.use('/files', fileRoutes)
 app.use('/departments', departmentRoutes)
 app.use('/roles', roleRoutes)
