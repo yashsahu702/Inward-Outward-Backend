@@ -77,84 +77,6 @@ Role.hasMany(UserRole, { foreignKey: 'roleId', as: 'userRoles' })
 UserRole.belongsTo(Role, { foreignKey: 'roleId', as: 'role' })
 
 
-// UserDepartment.belongsTo(User, {
-//   foreignKey: 'userId',
-//   as: 'user',
-// })
-
-// UserDepartment.belongsTo(Department, {
-//   foreignKey: 'departmentId',
-//   as: 'department',
-// })
-
-// User.belongsToMany(Department, {
-//   through: UserDepartment,
-//   foreignKey: 'userId',
-//   otherKey: 'departmentId',
-//   as: 'departments',
-// })
-
-// Department.belongsToMany(User, {
-//   through: UserDepartment,
-//   foreignKey: 'departmentId',
-//   otherKey: 'userId',
-//   as: 'users',
-// })
-
-// Record.hasMany(Document, {
-//   foreignKey: 'recordId',
-//   as: 'documents',
-// })
-
-// Record belongsTo Department
-// Record.belongsTo(Department, {
-//   foreignKey: 'departmentId',
-//   as: 'department',
-// })
-
-// Record belongsTo User (createdBy)
-// Record.belongsTo(User, {
-//   foreignKey: 'createdBy',
-//   as: 'creator',
-// })
-
-// Document.belongsTo(Record, {
-//   foreignKey: 'recordId',
-//   as: 'record',
-// })
-
-// Department.hasMany(Record, {
-//   foreignKey: 'departmentId',
-//   as: 'records',
-// })
-// User.hasMany(Record, {
-//   foreignKey: 'createdBy',
-//   as: 'records',
-// })
-
-// RemarkRecord.belongsTo(Record, {
-//   foreignKey: 'recordId',
-//   as: 'record',
-// })
-
-// RemarkRecord.belongsTo(User, {
-//   foreignKey: 'userId',
-//   as: 'user',
-// })
-// Record.hasMany(RemarkRecord, {
-//   foreignKey: 'recordId',
-//   as: 'remarks',
-//   onDelete: 'CASCADE',
-// })
-// Record.belongsTo(User, {
-//   foreignKey: 'userId',
-//   as: 'user',
-// })
-// Record.belongsTo(User, {
-//   foreignKey: 'actionBy',
-//   as: 'actionUser',
-// })
-
 
 // ---- OTP
 // User.hasMany(Otp, {
@@ -169,8 +91,15 @@ UserRole.belongsTo(Role, { foreignKey: 'roleId', as: 'role' })
 // })
 
 // ---- Audit
-User.hasMany(Audit, { foreignKey: 'userId', as: 'audits' })
-Audit.belongsTo(User, { foreignKey: 'userId', as: 'user' })
+User.hasMany(Audit, {
+    foreignKey: 'performedBy',
+    as: 'audits',
+});
+
+Audit.belongsTo(User, {
+        foreignKey: 'performedBy',
+        as: 'user',
+    });
 
 // Associate BuildingApproval with Building:
 
