@@ -640,7 +640,6 @@ export const getDashboard = async (
 
 
 
-
 export const getAvakJavakStatusCounts = async (
     req: AuthRequest,
     res: Response
@@ -649,159 +648,214 @@ export const getAvakJavakStatusCounts = async (
         const { month, year } = req.body;
 
         // ---------------------------------
-        // VALIDATE FILTERS
+        // VALIDATE AND NORMALIZE MONTHS
         // ---------------------------------
+
+        let selectedMonths: number[] = [];
 
         if (month !== undefined && month !== null) {
+            const months = Array.isArray(month) ? month : [month];
+
             if (
-                !Number.isInteger(Number(month)) ||
-                Number(month) < 1 ||
-                Number(month) > 12
+                months.length === 0 ||
+                months.some(
+                    (m: any) =>
+                        !Number.isInteger(Number(m)) ||
+                        Number(m) < 1 ||
+                        Number(m) > 12
+                )
             ) {
                 return res.status(400).json({
-                    message: 'Invalid month. Month must be between 1 and 12.'
+                    message: 'Invalid month. Months must be between 1 and 12.'
                 });
             }
 
-            if (year === undefined || year === null) {
-                return res.status(400).json({
-                    message: 'Year is required when month is provided.'
-                });
-            }
+            selectedMonths = [...new Set(months.map(Number))].sort(
+                (a, b) => a - b
+            );
+        } else {
+            // All 12 months
+            selectedMonths = Array.from(
+                { length: 12 },
+                (_, index) => index + 1
+            );
         }
 
+        // ---------------------------------
+        // VALIDATE AND NORMALIZE YEARS
+        // ---------------------------------
+
+        let selectedYears: number[] = [];
+
         if (year !== undefined && year !== null) {
+            const years = Array.isArray(year) ? year : [year];
+
             if (
-                !Number.isInteger(Number(year)) ||
-                Number(year) < 2000 ||
-                Number(year) > 2100
+                years.length === 0 ||
+                years.some(
+                    (y: any) =>
+                        !Number.isInteger(Number(y)) ||
+                        Number(y) < 2000 ||
+                        Number(y) > 2100
+                )
             ) {
                 return res.status(400).json({
-                    message: 'Invalid year.'
+                    message: 'Invalid year. Please provide a valid year.'
                 });
             }
+
+            selectedYears = [...new Set(years.map(Number))].sort(
+                (a, b) => a - b
+            );
+        } else {
+            // Default current year
+            selectedYears = [new Date().getFullYear()];
         }
 
         // ---------------------------------
-        // BUILD DATE FILTER
+        // FETCH MONTH-WISE COUNTS
         // ---------------------------------
 
-        const avakWhere: any = {};
+        const data: Record<string, any> = {};
 
-        if (year !== undefined && year !== null) {
-            const selectedYear = Number(year);
+        for (const selectedYear of selectedYears) {
 
-            let startDate: Date;
-            let endDate: Date;
+            data[selectedYear] = {};
 
-            if (month !== undefined && month !== null) {
-                const selectedMonth = Number(month) - 1;
+            const monthlyResults = await Promise.all(
+                selectedMonths.map(async (selectedMonth) => {
 
-                startDate = new Date(
-                    selectedYear,
-                    selectedMonth,
-                    1
-                );
+                    const startDate = new Date(
+                        selectedYear,
+                        selectedMonth - 1,
+                        1
+                    );
 
-                endDate = new Date(
-                    selectedYear,
-                    selectedMonth + 1,
-                    1
-                );
-            } else {
-                // Full year
-                startDate = new Date(selectedYear, 0, 1);
+                    const endDate = new Date(
+                        selectedYear,
+                        selectedMonth,
+                        1
+                    );
 
-                endDate = new Date(selectedYear + 1, 0, 1);
-            }
+                    // AVAK DATE FILTER
+                    const avakWhere: any = {
+                        registrationDate: {
+                            [Op.gte]: startDate,
+                            [Op.lt]: endDate
+                        }
+                    };
 
-            avakWhere.registrationDate = {
-                [Op.gte]: startDate,
-                [Op.lt]: endDate
-            };
+                    // JAVAK FILTER THROUGH ASSOCIATED AVAK
+                    const javakInclude = [
+                        {
+                            model: Avak,
+                            as: 'avak',
+                            attributes: [],
+                            required: true,
+                            where: avakWhere
+                        }
+                    ];
+
+                    // ---------------------------------
+                    // FETCH MONTHLY COUNTS
+                    // ---------------------------------
+
+                    const [
+                        totalAvak,
+                        totalJavak,
+                        avakStatusWise,
+                        javakStatusWise
+                    ] = await Promise.all([
+
+                        // Total Avak
+                        Avak.count({
+                            where: avakWhere
+                        }),
+
+                        // Actual Total Javak
+                        Javak.count({
+                            include: javakInclude,
+                            distinct: true,
+                            col: 'id'
+                        }),
+
+                        // Avak Status Wise
+                        Avak.findAll({
+                            attributes: [
+                                'status',
+                                [
+                                    Sequelize.fn(
+                                        'COUNT',
+                                        Sequelize.col('Avak.id')
+                                    ),
+                                    'count'
+                                ]
+                            ],
+                            where: avakWhere,
+                            group: ['Avak.status'],
+                            order: [
+                                [Sequelize.col('Avak.status'), 'ASC']
+                            ],
+                            raw: true
+                        }),
+
+                        // Javak Status Wise
+                        Javak.findAll({
+                            attributes: [
+                                'status',
+                                [
+                                    Sequelize.fn(
+                                        'COUNT',
+                                        Sequelize.col('Javak.id')
+                                    ),
+                                    'count'
+                                ]
+                            ],
+                            include: javakInclude,
+                            group: ['Javak.status'],
+                            order: [
+                                [Sequelize.col('Javak.status'), 'ASC']
+                            ],
+                            raw: true
+                        })
+                    ]);
+
+                    // ---------------------------------
+                    // FORMAT STATUS COUNTS
+                    // ---------------------------------
+
+                    const formattedAvakStatusWise =
+                        (avakStatusWise as any[]).map(item => ({
+                            status: item.status ?? 'Not Set',
+                            count: Number(item.count)
+                        }));
+
+                    const formattedJavakStatusWise =
+                        (javakStatusWise as any[]).map(item => ({
+                            status: item.status ?? 'Not Set',
+                            count: Number(item.count)
+                        }));
+
+                    return {
+                        month: selectedMonth,
+                        result: {
+                            totalAvak: Number(totalAvak),
+                            totalJavak: Number(totalJavak),
+                            avakStatusWise: formattedAvakStatusWise,
+                            javakStatusWise: formattedJavakStatusWise
+                        }
+                    };
+                })
+            );
+
+            // ---------------------------------
+            // STORE MONTH-WISE RESULTS
+            // ---------------------------------
+
+            monthlyResults.forEach(({ month, result }) => {
+                data[selectedYear][month] = result;
+            });
         }
-
-        // ---------------------------------
-        // JAVAK FILTER THROUGH AVAK
-        // ---------------------------------
-
-        const javakInclude = [
-            {
-                model: Avak,
-                as: 'avak',
-                attributes: [],
-                required: true,
-                where: avakWhere
-            }
-        ];
-
-        // ---------------------------------
-        // FETCH COUNTS
-        // ---------------------------------
-
-        const [
-            totalAvak,
-            avakStatusWise,
-            javakStatusWise
-        ] = await Promise.all([
-
-            // Total Avak
-            Avak.count({
-                where: avakWhere
-            }),
-
-            // Avak status-wise count
-            Avak.findAll({
-                attributes: [
-                    'status',
-                    [
-                        Sequelize.fn(
-                            'COUNT',
-                            Sequelize.col('Avak.id')
-                        ),
-                        'count'
-                    ]
-                ],
-                where: avakWhere,
-                group: ['Avak.status'],
-                order: [[Sequelize.col('Avak.status'), 'ASC']],
-                raw: true
-            }),
-
-            // Javak status-wise count
-            Javak.findAll({
-                attributes: [
-                    'status',
-                    [
-                        Sequelize.fn(
-                            'COUNT',
-                            Sequelize.col('Javak.id')
-                        ),
-                        'count'
-                    ]
-                ],
-                include: javakInclude,
-                group: ['Javak.status'],
-                order: [[Sequelize.col('Javak.status'), 'ASC']],
-                raw: true
-            })
-        ]);
-
-        // ---------------------------------
-        // FORMAT RESPONSE
-        // ---------------------------------
-
-        const formattedAvakStatusWise =
-            (avakStatusWise as any[]).map(item => ({
-                status: item.status ?? 'Not Set',
-                count: Number(item.count)
-            }));
-
-        const formattedJavakStatusWise =
-            (javakStatusWise as any[]).map(item => ({
-                status: item.status ?? 'Not Set',
-                count: Number(item.count)
-            }));
 
         // ---------------------------------
         // FINAL RESPONSE
@@ -811,20 +865,11 @@ export const getAvakJavakStatusCounts = async (
             message: 'Avak and Javak status counts fetched successfully.',
 
             filters: {
-                month: month ? Number(month) : null,
-                year: year ? Number(year) : null
+                month: month ?? null,
+                year: year ?? null
             },
 
-            data: {
-                totalAvak: Number(totalAvak),
-
-                // Always equal to totalAvak
-                totalJavak: Number(totalAvak),
-
-                avakStatusWise: formattedAvakStatusWise,
-
-                javakStatusWise: formattedJavakStatusWise
-            }
+            data
         });
 
     } catch (error: any) {
