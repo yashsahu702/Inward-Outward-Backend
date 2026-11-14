@@ -9,7 +9,7 @@ router.post('/summary',authenticateJWT, getDashboard);
 
 router.post(
     '/avak-javak-status-counts',
-  //  authenticateJWT,
+    authenticateJWT,
     getAvakJavakStatusCounts
 );
 
